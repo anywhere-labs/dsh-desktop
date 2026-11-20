@@ -41,6 +41,7 @@ import { cleanupDisposableTree } from '../../dsh-plugin-desktop/src/disposable-t
 import { installEditingContextMenu } from '../../dsh-plugin-desktop/src/context-menu.ts'
 import { atomicJson, privateDirectory } from './private-files.ts'
 import { windowMaterial } from './window-material.ts'
+import { syncWindowFullscreenState } from './window-fullscreen.ts'
 import { captureMainWindowState, FileMainWindowStateStore, fitMainWindowBounds, sameMainWindowState, type MainWindowState } from './main-window-state.ts'
 import { BACKGROUND_ARGUMENT, DE_ELEVATED_ARGUMENT, ONBOARDING_ARGUMENT, RECOVERY_ARGUMENT, SAFE_ARGUMENT, relaunchApp, relaunchArguments } from './relaunch.ts'
 import { DESKTOP_RUNTIME_FILE, readInstalledPackageVersion, verifyPackagedRuntimeIdentity } from './runtime-tree.ts'
@@ -513,6 +514,8 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     })
     const schedule = (): void => scheduleMainWindowState(window)
     window.on('move', schedule).on('resize', schedule).on('maximize', schedule).on('unmaximize', schedule)
+    // Only the application document marks its platform, which the official fullscreen rules are scoped to.
+    syncWindowFullscreenState(window, process.platform)
   }
   const openExternal = (url: string): void => {
     try { if (['https:', 'http:', 'mailto:'].includes(new URL(url).protocol)) void shell.openExternal(url).catch(error => runtime.report(error)) } catch { /* Ignore malformed external links. */ }
@@ -1333,7 +1336,9 @@ function prepareHostEnvironment(): Promise<void> {
     const fallbackLocale = ensureUtf8Locale(process.env, process.platform, app.getPreferredSystemLanguages())
     systemProxy = proxy.value
     runtime.diagnostics.record({ source: 'desktop', event: 'shell-environment.resolved', fields: { source: shell.value.source,
-      fallbackReason: shell.value.fallbackReason ?? null, recovered: Object.keys(shell.value.updates).join(' ') || null, fallbackLocale: fallbackLocale ?? null,
+      fallbackReason: shell.value.fallbackReason ?? null, shell: shell.value.shell ?? null,
+      shellFailures: shell.value.failures?.map(failure => `${failure.shell}: ${failure.reason}`).join(', ') ?? null,
+      recovered: Object.keys(shell.value.updates).join(' ') || null, fallbackLocale: fallbackLocale ?? null,
       shellMs: shell.ms, systemProxyMs: proxy.ms, systemProxyConfiguration: proxyConfiguration } })
   })()
 }

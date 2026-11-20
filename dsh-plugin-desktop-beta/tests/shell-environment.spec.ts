@@ -90,11 +90,31 @@ describe.skipIf(process.platform === 'win32')('desktop login shell capture', () 
       .resolves.toMatchObject({ CAPTURED_VALUE: 'available' })
   }, 15_000)
 
+  it('completes at its end marker while a background program keeps the capture stream open', async () => {
+    // The program outlives the shell and holds the stream for three seconds.
+    const { home, shell } = fakeShell('zsh', 'sleep 3 &\nexec /bin/sh -c "$2"')
+    const startedAt = Date.now()
+
+    await expect(captureLoginShellEnvironment(shell, home, { CAPTURED_VALUE: 'available' }, 10_000))
+      .resolves.toMatchObject({ CAPTURED_VALUE: 'available' })
+    expect(Date.now() - startedAt).toBeLessThan(2_000)
+  }, 15_000)
+
+  it('turns off oh-my-zsh update prompts and tmux autostart while startup files run', async () => {
+    const { home, shell } = fakeShell('zsh', 'exec /bin/sh -c "$2"')
+
+    await expect(captureLoginShellEnvironment(shell, home, { ZSH_TMUX_AUTOSTART: 'true' }, 10_000)).resolves.toMatchObject({
+      DISABLE_AUTO_UPDATE: 'true',
+      ZSH_TMUX_AUTOSTARTED: 'true',
+      ZSH_TMUX_AUTOSTART: 'false',
+    })
+  }, 15_000)
+
   it('enforces its deadline when a shell and background child retain the capture stream', async () => {
     const { home, shell } = fakeShell('bash', 'sleep 30 &\nsleep 30')
     const startedAt = Date.now()
 
-    await expect(captureLoginShellEnvironment(shell, home, {}, 25)).rejects.toThrow('timed out after 25ms')
+    await expect(captureLoginShellEnvironment(shell, home, {}, 25)).rejects.toMatchObject({ name: 'TimeoutError', message: expect.stringContaining('timed out after 25ms') })
     expect(Date.now() - startedAt).toBeLessThan(1_000)
   })
 
@@ -131,6 +151,14 @@ describe.skipIf(process.platform === 'win32')('desktop login shell capture', () 
       pathPrefix: '/dsh-fish-login/bin:',
       javaHome: '/dsh-fish-java',
     },
+    {
+      name: 'sh',
+      files: {
+        '.profile': 'export PATH="/dsh-sh-login/bin:$PATH"\nexport JAVA_HOME="/dsh-sh-java"\n',
+      },
+      pathPrefix: '/dsh-sh-login/bin:',
+      javaHome: '/dsh-sh-java',
+    },
   ] as const) {
     const executable = findExecutable(shellCase.name)
     it.runIf(executable !== undefined)(`loads real ${shellCase.name} startup files headlessly`, async () => {
@@ -155,6 +183,15 @@ describe.skipIf(process.platform === 'win32')('desktop login shell capture', () 
 })
 
 describe('desktop shell environment selection', () => {
+  it('never selects the variables that keep startup files from blocking the read', () => {
+    expect(selectDesktopShellEnvironment({
+      PATH: '/opt/homebrew/bin:/usr/bin',
+      DISABLE_AUTO_UPDATE: 'true',
+      ZSH_TMUX_AUTOSTARTED: 'true',
+      ZSH_TMUX_AUTOSTART: 'false',
+    }, {})).toEqual({ PATH: '/opt/homebrew/bin:/usr/bin' })
+  })
+
   it('selects PATH, locale and common toolchain exports', () => {
     expect(selectDesktopShellEnvironment({
       PATH: '/opt/homebrew/bin:/usr/bin',
@@ -296,13 +333,14 @@ describe('desktop shell environment resolution', () => {
         NVM_DIR: '/Users/tester/.nvm',
       },
       source: 'login-shell',
+      shell: '/bin/zsh',
     })
     expect(capture).toHaveBeenCalledWith('/bin/zsh', '/Users/tester', {
       PATH: '/usr/bin:/bin',
       SAFE_PARENT: 'available-to-rc',
       HOME: '/Users/tester',
       SHELL: '/bin/zsh',
-    }, 2_000)
+    }, 10_000)
   })
 
   it('uses the requested timeout on packaged Linux', async () => {
@@ -320,6 +358,7 @@ describe('desktop shell environment resolution', () => {
     })).resolves.toEqual({
       updates: { PATH: '/home/tester/.local/bin:/usr/bin:/bin' },
       source: 'login-shell',
+      shell: '/bin/bash',
     })
     expect(capture).toHaveBeenCalledWith('/bin/bash', '/home/tester', {
       HOME: '/home/tester',
@@ -339,11 +378,13 @@ describe('desktop shell environment resolution', () => {
       isPackaged: true,
       platform: 'darwin',
       shell,
+      fallbackShells: [],
       capture,
     })).resolves.toEqual({
       updates: {},
       source: 'process',
       fallbackReason: 'unsupported-shell',
+      failures: [{ shell, reason: 'unsupported-shell' }],
     })
     expect(capture).not.toHaveBeenCalled()
   })
@@ -360,11 +401,18 @@ describe('desktop shell environment resolution', () => {
       capture,
     })
 
+    // The account's shell first, then each system shell it is not.
     expect(resolution).toEqual({
       updates: {},
       source: 'process',
       fallbackReason: 'capture-failed',
+      failures: [
+        { shell: '/bin/bash', reason: 'capture-failed' },
+        { shell: '/bin/zsh', reason: 'capture-failed' },
+        { shell: '/bin/sh', reason: 'capture-failed' },
+      ],
     })
+    expect(capture).toHaveBeenCalledTimes(3)
     expect(JSON.stringify(resolution)).not.toContain('secret shell output')
   })
 
@@ -380,11 +428,13 @@ describe('desktop shell environment resolution', () => {
       isPackaged: true,
       platform: 'darwin',
       shell: '/bin/zsh',
+      fallbackShells: [],
       capture,
     })).resolves.toEqual({
       updates: {},
       source: 'process',
       fallbackReason: 'missing-path',
+      failures: [{ shell: '/bin/zsh', reason: 'missing-path' }],
     })
   })
 
@@ -419,4 +469,103 @@ describe('desktop shell environment resolution', () => {
       else process.env.DSH_DESKTOP_CAPTURE_SAFE = originalSafe
     }
   })
+
+  it('tries the system shells in turn when the account shell fails, all within one deadline', async () => {
+    const capture = vi.fn(async (shell: string, _home: string, _environment: NodeJS.ProcessEnv, _timeoutMs: number) => {
+      if (shell === '/usr/local/bin/fish') throw Object.assign(new Error('desktop shell environment timed out after 5000ms'), { name: 'TimeoutError' })
+      if (shell === '/bin/zsh') return { JAVA_HOME: '/java' }
+      return { PATH: '/opt/tools/bin:/usr/bin:/bin' }
+    })
+
+    await expect(resolveDesktopShellEnvironment({
+      environment: { PATH: '/usr/bin:/bin' },
+      home: '/Users/tester',
+      isPackaged: true,
+      platform: 'darwin',
+      shell: '/usr/local/bin/fish',
+      timeoutMs: 5_000,
+      capture,
+      scrubParent: () => ({}),
+    })).resolves.toEqual({
+      updates: { PATH: '/opt/tools/bin:/usr/bin:/bin' },
+      source: 'login-shell',
+      shell: '/bin/bash',
+      failures: [
+        { shell: '/usr/local/bin/fish', reason: 'timed-out' },
+        { shell: '/bin/zsh', reason: 'missing-path' },
+      ],
+    })
+    expect(capture.mock.calls.map(([shell]) => shell)).toEqual(['/usr/local/bin/fish', '/bin/zsh', '/bin/bash'])
+    expect(capture.mock.calls[0]?.[3]).toBe(5_000)
+    for (const call of capture.mock.calls.slice(1)) expect(call[3]).toBeLessThanOrEqual(5_000)
+  })
+
+  it.each([
+    { shell: '/opt/homebrew/bin/nu', failures: [{ shell: '/opt/homebrew/bin/nu', reason: 'unsupported-shell' }] },
+    { shell: '', failures: undefined },
+  ])('reads a system shell when the account names $shell', async ({ shell, failures }) => {
+    const capture = vi.fn(async () => ({ PATH: '/usr/local/bin:/usr/bin:/bin' }))
+
+    await expect(resolveDesktopShellEnvironment({
+      environment: { PATH: '/usr/bin:/bin' },
+      home: '/Users/tester',
+      isPackaged: true,
+      platform: 'darwin',
+      shell,
+      capture,
+      scrubParent: () => ({}),
+    })).resolves.toEqual({
+      updates: { PATH: '/usr/local/bin:/usr/bin:/bin' },
+      source: 'login-shell',
+      shell: '/bin/zsh',
+      ...(failures === undefined ? {} : { failures }),
+    })
+    expect(capture).toHaveBeenCalledOnce()
+  })
+
+  it('tries no further shell once the shared deadline has passed', async () => {
+    const capture = vi.fn(async () => {
+      await new Promise(resolve => setTimeout(resolve, 60))
+      throw new Error('exit 1')
+    })
+
+    await expect(resolveDesktopShellEnvironment({
+      environment: { PATH: '/usr/bin:/bin' },
+      home: '/home/tester',
+      isPackaged: true,
+      platform: 'linux',
+      shell: '/bin/zsh',
+      fallbackShells: ['/bin/bash', '/bin/sh'],
+      timeoutMs: 50,
+      capture,
+      scrubParent: () => ({}),
+    })).resolves.toEqual({
+      updates: {},
+      source: 'process',
+      fallbackReason: 'capture-failed',
+      failures: [{ shell: '/bin/zsh', reason: 'capture-failed' }],
+    })
+    expect(capture).toHaveBeenCalledOnce()
+  })
+
+  it('recovers PATH from a fallback shell when the account shell exits without its environment', async () => {
+    const broken = fakeShell('zsh', 'exit 3')
+    const working = fakeShell('bash', 'exec /bin/sh -c "$2"')
+
+    const resolution = await resolveDesktopShellEnvironment({
+      environment: {},
+      home: working.home,
+      isPackaged: true,
+      platform: process.platform === 'darwin' ? 'darwin' : 'linux',
+      shell: broken.shell,
+      fallbackShells: [working.shell],
+    })
+
+    expect(resolution).toMatchObject({
+      source: 'login-shell',
+      shell: working.shell,
+      failures: [{ shell: broken.shell, reason: 'capture-failed' }],
+    })
+    expect(resolution.updates.PATH).toBe(scrubbedParentEnv().PATH)
+  }, 15_000)
 })

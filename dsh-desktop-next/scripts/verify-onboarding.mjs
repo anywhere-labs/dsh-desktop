@@ -76,7 +76,7 @@ try {
   await context.addInitScript(() => {
     globalThis.dshDesktop = { protocolVersion: 1 }
     globalThis.dshDesktopBoot = { ready: () => globalThis.__boot(), failed: message => globalThis.__bootFailed(message) }
-    globalThis.dshDesktopSetup = { read: () => globalThis.__readSetup(), finish: () => { throw new Error('Setup is unavailable') }, dismissAccount: profile => globalThis.__dismissAccount(profile) }
+    globalThis.dshDesktopSetup = { read: () => globalThis.__readSetup(), dismissAccount: profile => globalThis.__dismissAccount(profile) }
     window.desktopNext = {
       state: () => globalThis.__standaloneState(),
       command: value => globalThis.__standaloneCommand(value),

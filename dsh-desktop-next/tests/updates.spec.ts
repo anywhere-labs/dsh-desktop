@@ -1,5 +1,5 @@
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { createHash } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
@@ -152,6 +152,39 @@ it('rechecks the selected version before downloading, and preserves preparation 
   expect(updates.snapshot()).toMatchObject({ phase: 'error', error: 'prepare' })
   await updates.install(); expect(options.install).not.toHaveBeenCalled()
   expect(updateAction(updates.snapshot())).toBe('download-update')
+})
+it('names the cause of a failed download, and forgets it once a retry gets past it', async () => {
+  const dropped = vi.fn<UpdateArtifactRequest>(async url => ({ finalUrl: url, response: new Response(new ReadableStream({
+    pull(controller) { controller.error(new Error('net::ERR_CONNECTION_RESET')) },
+  })) }))
+  const { updates, artifactRequest } = await fixture()
+  artifactRequest.mockImplementationOnce(dropped)
+  await updates.download()
+  expect(updates.snapshot()).toMatchObject({ phase: 'error', error: 'download', downloadFailure: 'network' })
+  expect(updateLabel(updates.snapshot(), 'zh-CN')).toBe('下载更新失败，请检查网络连接后重试。')
+  expect(updateLabel(updates.snapshot(), 'en')).toBe('Could not download the update. Check your connection and try again.')
+  expect(updateAction(updates.snapshot())).toBe('download-update')
+  await updates.download()
+  expect(updates.snapshot().phase).toBe('ready')
+  expect(updates.snapshot().downloadFailure).toBeUndefined()
+})
+// A Windows folder ignores the mode, and root ignores it everywhere.
+it.skipIf(process.getuid?.() === 0 || process.platform === 'win32')('reports a download folder it cannot write as a permission problem', async () => {
+  const downloads = await mkdtemp(join(tmpdir(), 'next-update-read-only-')); roots.push(downloads)
+  await chmod(downloads, 0o500)
+  try {
+    const { updates } = await fixture({ downloads })
+    await updates.download()
+    expect(updates.snapshot()).toMatchObject({ phase: 'error', error: 'download', downloadFailure: 'permission' })
+    expect(updateLabel(updates.snapshot(), 'en')).toBe('Cannot write the update files. Check the folder permissions and retry.')
+  } finally {
+    await chmod(downloads, 0o700)
+  }
+})
+it('keeps the generic retry advice for download failures without a known cause', () => {
+  expect(updateLabel({ phase: 'error', error: 'download', installable: true }, 'zh-CN')).toBe('更新未完成，请重试。')
+  expect(updateLabel({ phase: 'error', error: 'download', downloadFailure: 'space', installable: true }, 'zh-CN')).toBe('磁盘空间不足，无法下载更新。请释放空间后重试。')
+  expect(updateLabel({ phase: 'error', error: 'download', downloadFailure: 'busy', installable: true }, 'en')).toBe('An update file is in use. Close the program using it, then retry.')
 })
 it('stops polling and aborts an active request on shutdown', async () => {
   const request = vi.fn<UpdateRequest>(async (_url, init) => new Promise((_resolve, reject) => init.signal!.addEventListener('abort', () => reject(new Error('aborted')), { once: true })))

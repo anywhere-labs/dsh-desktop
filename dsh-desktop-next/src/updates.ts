@@ -6,6 +6,7 @@ import { desktopUpdateFilename, downloadDesktopUpdate, type UpdateArtifactReques
 import { getOrCreateDesktopInstallationId } from '../../dsh-plugin-desktop/src/desktop-installation-id.ts'
 import { atomicJson, privateDirectory, readPrivateFile } from './private-files.ts'
 import { withUpdateArch, type UpdateArch } from './update-arch.ts'
+import { updateDownloadFailure } from './update-failure.ts'
 import type { NextUpdateState } from './update-state.ts'
 
 export interface NextUpdateOptions {
@@ -79,7 +80,7 @@ export class NextUpdates {
   }
   private set(patch: Partial<NextUpdateState>): void {
     if (this.disposed) return
-    this.state = { ...this.state, error: undefined, ...patch }
+    this.state = { ...this.state, error: undefined, downloadFailure: undefined, ...patch }
     this.options.changed()
   }
   start(): void {
@@ -174,7 +175,8 @@ export class NextUpdates {
         this.set({ phase: 'ready' })
       } catch (error) {
         this.options.log(error)
-        this.set({ phase: 'error', error: preparing ? 'prepare' : 'download' })
+        const downloadFailure = preparing ? undefined : updateDownloadFailure(error)
+        this.set({ phase: 'error', error: preparing ? 'prepare' : 'download', ...(downloadFailure === undefined ? {} : { downloadFailure }) })
       }
     })
   }

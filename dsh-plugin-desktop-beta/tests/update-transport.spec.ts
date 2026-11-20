@@ -1,4 +1,4 @@
-import { Readable } from 'node:stream'
+import { PassThrough, Readable } from 'node:stream'
 import { beforeEach, expect, it, vi } from 'vitest'
 
 /**
@@ -47,7 +47,7 @@ vi.mock('electron', () => ({
   session: { fromPartition: vi.fn((name: string) => { harness.partitions.push(name); return { name } }) },
 }))
 
-const { createArtifactRequest } = await import('../src/update-transport.ts')
+const { createArtifactRequest, updateIdleTimeoutMs } = await import('../src/update-transport.ts')
 
 const endpoint = 'https://www.dshdesktop.cn/api/downloads/mac'
 const storage = 'https://www.dshdesktop.cn/downloads/dsh/2.0.17-beta.1/mac/DSH-Desktop-Beta-2.0.17-beta.1-universal.dmg'
@@ -126,4 +126,61 @@ it('carries installer traffic on a non-persistent partition instead of applicati
   expect(harness.partitions[0]).not.toMatch(/^persist:/)
   harness.requests[0]!.emit('response', incoming(200, 'koly'))
   await pending
+})
+
+it('fails a request whose headers stay away for the idle timeout, and aborts it', async () => {
+  const startedAt = Date.now()
+  const pending = createArtifactRequest({ idleTimeoutMs: 100 })(endpoint, {})
+  await expect(pending).rejects.toMatchObject({ code: 'ETIMEDOUT' })
+  expect(Date.now() - startedAt).toBeGreaterThanOrEqual(90)
+  expect(harness.requests[0]!.aborted).toBe(true)
+})
+
+it('starts the header wait again on each redirect hop', async () => {
+  const pending = createArtifactRequest({ idleTimeoutMs: 150 })(endpoint, {})
+  await new Promise(resolve => setTimeout(resolve, 100))
+  harness.requests[0]!.emit('redirect', 302, 'GET', storage, {})
+  await new Promise(resolve => setTimeout(resolve, 100))
+  harness.requests[1]!.emit('response', incoming(200, 'koly'))
+  const settled = await pending
+  expect(Buffer.from(await settled.response.arrayBuffer()).toString()).toBe('koly')
+})
+
+it('keeps a slow body that still sends chunks, and fails one that goes silent', async () => {
+  const pending = createArtifactRequest({ idleTimeoutMs: 200 })(endpoint, {})
+  const body = Object.assign(new PassThrough(), { statusCode: 200, headers: { 'content-type': 'application/octet-stream' } })
+  harness.requests[0]!.emit('response', body)
+  const reader = (await pending).response.body!.getReader()
+  // Six chunks 50 ms apart outlast one idle timeout without tripping it.
+  for (let index = 0; index < 6; index++) {
+    body.write(Buffer.from('k'))
+    expect((await reader.read()).value).toEqual(new Uint8Array([107]))
+    await new Promise(resolve => setTimeout(resolve, 50))
+  }
+  await expect(reader.read()).rejects.toMatchObject({ code: 'ETIMEDOUT' })
+  expect(harness.requests[0]!.aborted).toBe(true)
+})
+
+it('stops watching a body that ended', async () => {
+  const pending = createArtifactRequest({ idleTimeoutMs: 100 })(endpoint, {})
+  harness.requests[0]!.emit('response', incoming(200, 'koly'))
+  const settled = await pending
+  expect(Buffer.from(await settled.response.arrayBuffer()).toString()).toBe('koly')
+  await new Promise(resolve => setTimeout(resolve, 150))
+  expect(harness.requests[0]!.aborted).toBe(false)
+})
+
+it('reads the idle timeout override and rejects requests while it is invalid', async () => {
+  expect(updateIdleTimeoutMs({})).toBe(60_000)
+  expect(updateIdleTimeoutMs({ DSH_DESKTOP_UPDATE_HTTP_IDLE_TIMEOUT_MS: '5000' })).toBe(5_000)
+  for (const value of ['999', '2147483648', '1.5', 'soon']) {
+    expect(() => updateIdleTimeoutMs({ DSH_DESKTOP_UPDATE_HTTP_IDLE_TIMEOUT_MS: value })).toThrow(/integer from 1000 through 2147483647/)
+  }
+  process.env.DSH_DESKTOP_UPDATE_HTTP_IDLE_TIMEOUT_MS = 'soon'
+  try {
+    await expect(createArtifactRequest()(endpoint, {})).rejects.toThrow(/integer from 1000 through 2147483647/)
+    expect(harness.requests).toHaveLength(0)
+  } finally {
+    delete process.env.DSH_DESKTOP_UPDATE_HTTP_IDLE_TIMEOUT_MS
+  }
 })
