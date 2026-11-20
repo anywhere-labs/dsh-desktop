@@ -20,6 +20,37 @@ const UPDATE_PARTITION = 'dsh-next-update'
 /** HTTP statuses whose Response must be constructed without a body stream. */
 const NULL_BODY_STATUSES = new Set([204, 205, 304])
 
+/** Silence allowed before response headers and between body chunks, as in the official Desktop. */
+const DEFAULT_IDLE_TIMEOUT_MS = 60_000
+
+/** Overrides the idle timeout in milliseconds; the official Desktop reads the same variable. */
+const IDLE_TIMEOUT_VARIABLE = 'DSH_DESKTOP_UPDATE_HTTP_IDLE_TIMEOUT_MS'
+
+/** Options of {@link createArtifactRequest}. */
+export interface ArtifactRequestOptions {
+  /**
+   * Maximum silence before the response headers and between body chunks, not a total download deadline.
+   * Defaults to {@link updateIdleTimeoutMs}.
+   */
+  readonly idleTimeoutMs?: number
+}
+
+/**
+ * Resolve the installer transport's idle timeout.
+ * @param environment - Desktop process environment.
+ * @returns `DSH_DESKTOP_UPDATE_HTTP_IDLE_TIMEOUT_MS`, or 60000 when it is unset.
+ * @throws When the variable is not an integer from 1000 through 2147483647.
+ */
+export function updateIdleTimeoutMs(environment: NodeJS.ProcessEnv = process.env): number {
+  const value = environment[IDLE_TIMEOUT_VARIABLE]
+  if (value === undefined || value === '') return DEFAULT_IDLE_TIMEOUT_MS
+  const parsed = Number(value)
+  if (!Number.isSafeInteger(parsed) || parsed < 1000 || parsed > 2_147_483_647) {
+    throw new Error(`dsh-desktop-next: ${IDLE_TIMEOUT_VARIABLE} must be an integer from 1000 through 2147483647`)
+  }
+  return parsed
+}
+
 /**
  * Build the artifact transport for installer downloads.
  *
@@ -29,20 +60,32 @@ const NULL_BODY_STATUSES = new Set([204, 205, 304])
  * `net.request` emits a `redirect` event and waits for `followRedirect()` or
  * `abort()`, which supports the per-hop HTTPS check.
  *
+ * Chromium bounds neither the wait for headers nor a stalled body, so a request
+ * that goes silent for the idle timeout fails with `ETIMEDOUT` and is aborted:
+ * before its headers it rejects, and afterwards its body stream errors.
+ *
+ * @param options - Idle timeout; an invalid environment override rejects each request.
  * @returns A request adapter that resolves with the settled response and URL.
  */
-export function createArtifactRequest(): UpdateArtifactRequest {
-  return (url, init) => requestArtifact(url, init)
+export function createArtifactRequest(options: ArtifactRequestOptions = {}): UpdateArtifactRequest {
+  return (url, init) => requestArtifact(url, init, options)
 }
 
-function requestArtifact(url: string, init: RequestInit): Promise<UpdateArtifactResponse> {
+/** The transport's failure when a request goes silent; the update copy reports it as a connection problem. */
+function idleTimeout(idleTimeoutMs: number): Error {
+  return Object.assign(new Error(`The update download received no data for ${String(idleTimeoutMs)} ms.`), { code: 'ETIMEDOUT' })
+}
+
+function requestArtifact(url: string, init: RequestInit, options: ArtifactRequestOptions): Promise<UpdateArtifactResponse> {
   return new Promise<UpdateArtifactResponse>((resolve, reject) => {
+    const idleTimeoutMs = options.idleTimeoutMs ?? updateIdleTimeoutMs()
     const signal = init.signal ?? undefined
     let current: Electron.ClientRequest | undefined
+    let headerTimer: ReturnType<typeof setTimeout> | undefined
     let hops = 0
     let settled = false
 
-    const release = (): void => { signal?.removeEventListener('abort', onAbort) }
+    const release = (): void => { clearTimeout(headerTimer); signal?.removeEventListener('abort', onAbort) }
     const finish = (value: UpdateArtifactResponse): void => {
       if (settled) return
       settled = true; release(); resolve(value)
@@ -79,6 +122,13 @@ function requestArtifact(url: string, init: RequestInit): Promise<UpdateArtifact
       current = request
       headers.forEach((value, key) => request.setHeader(key, value))
       let closing = false
+      clearTimeout(headerTimer)
+      headerTimer = setTimeout(() => {
+        // Settle first, as for a cancellation: the abort below must not report itself.
+        closing = true
+        fail(idleTimeout(idleTimeoutMs))
+        try { request.abort() } catch { /* the request may already be finished */ }
+      }, idleTimeoutMs)
 
       request.on('redirect', (_status, _method, redirectUrl) => {
         // Do not call followRedirect(): the next hop is issued here so every
@@ -90,6 +140,7 @@ function requestArtifact(url: string, init: RequestInit): Promise<UpdateArtifact
         open(next)
       })
       request.on('response', incoming => {
+        clearTimeout(headerTimer)
         if (settled) return
         const status = incoming.statusCode
         if (status === undefined) { fail(new Error('The update download response carried no HTTP status.')); return }
@@ -104,7 +155,7 @@ function requestArtifact(url: string, init: RequestInit): Promise<UpdateArtifact
             response: new Response(
               NULL_BODY_STATUSES.has(status)
                 ? null
-                : Readable.toWeb(incoming as unknown as Readable) as unknown as ReadableStream<Uint8Array>,
+                : watchedBody(incoming as unknown as Readable, request, idleTimeoutMs),
               { status, headers: responseHeaders },
             ),
             finalUrl: secure.href,
@@ -121,4 +172,35 @@ function requestArtifact(url: string, init: RequestInit): Promise<UpdateArtifact
 
     open(url)
   })
+}
+
+/**
+ * Convert a response body into a web stream that errors with the idle timeout when no chunk arrives in time.
+ * @param incoming - Response body as a Node Readable.
+ * @param request - The request that is aborted with the body.
+ * @param idleTimeoutMs - Maximum silence between chunks.
+ * @returns The body stream.
+ */
+function watchedBody(incoming: Readable, request: Electron.ClientRequest, idleTimeoutMs: number): ReadableStream<Uint8Array> {
+  const body = Readable.toWeb(incoming) as unknown as ReadableStream<Uint8Array>
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const stop = (): void => {
+    clearTimeout(timer)
+    incoming.off('data', refresh)
+  }
+  function refresh(): void {
+    clearTimeout(timer)
+    timer = setTimeout(() => {
+      stop()
+      incoming.destroy(idleTimeout(idleTimeoutMs))
+      try { request.abort() } catch { /* the request may already be finished */ }
+    }, idleTimeoutMs)
+  }
+  // Listening after the conversion leaves the stream's backpressure to it; every listener sees each chunk.
+  incoming.on('data', refresh)
+  incoming.once('end', stop)
+  incoming.once('error', stop)
+  incoming.once('close', stop)
+  refresh()
+  return body
 }

@@ -1,10 +1,14 @@
 /** Serializable update progress shared by settings, recovery and the tray. */
+import type { UpdateDownloadFailure } from './update-failure.ts'
+
 export interface NextUpdateState {
   phase: 'idle' | 'checking' | 'current' | 'available' | 'downloading' | 'preparing' | 'ready' | 'installing' | 'error'
   version?: string
   received?: number
   total?: number
   error?: 'service' | 'download' | 'prepare' | 'install' | 'development' | 'unsupported'
+  /** What made a `download` error, when its cause names something the user can fix. */
+  downloadFailure?: UpdateDownloadFailure
   installable: boolean
   /** A Windows copy run from the portable ZIP, which Setup cannot replace. */
   portable?: boolean
@@ -27,6 +31,16 @@ export function updateLabel(state: NextUpdateState, language: string): string {
       if (state.error === 'development') return t('开发环境可检查更新，请使用安装版进行更新。', 'Updates can be checked in development. Install a packaged build to update.')
       if (state.error === 'unsupported') return t('当前平台暂不支持应用内更新。', 'In-app updates are unavailable on this platform.')
       if (state.error === 'service') return t('暂时无法获取更新，请稍后重试。', 'Updates are temporarily unavailable. Try again later.')
+      if (state.error === 'download') {
+        // The official Desktop's advice for the same causes.
+        switch (state.downloadFailure) {
+          case 'space': return t('磁盘空间不足，无法下载更新。请释放空间后重试。', 'Not enough disk space to download the update. Free up space, then retry.')
+          case 'permission': return t('无法写入更新文件，请检查目录权限后重试。', 'Cannot write the update files. Check the folder permissions and retry.')
+          case 'busy': return t('更新文件正被占用，请关闭占用它的程序后重试。', 'An update file is in use. Close the program using it, then retry.')
+          case 'network': return t('下载更新失败，请检查网络连接后重试。', 'Could not download the update. Check your connection and try again.')
+          case undefined: break
+        }
+      }
       return t('更新未完成，请重试。', 'The update could not be completed. Please retry.')
     default: return t('检查更新', 'Check for updates')
   }
