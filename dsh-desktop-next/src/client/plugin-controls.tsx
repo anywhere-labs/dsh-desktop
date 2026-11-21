@@ -23,6 +23,7 @@ import {
 import { OFFICIAL_OAR_SUBAGENTS, OFFICIAL_PLUGIN_INDEX } from '../upstream-family-labels.ts'
 import type { LaunchPresetBundle } from '../launch-presets.ts'
 import { registerLaunchPresets } from './launch-presets.tsx'
+import { VERSION_SWITCH_ITEM, VersionSwitchActions } from './plugin-version-switch-control.tsx'
 
 const REMOTE = '@agents-anywhere/dsh-bridge-next'
 const COMPUTER_ITEM = 'desktop-next-computer-use'
@@ -98,7 +99,11 @@ export function registerPluginControls(ctx: Context): void {
       const actions = inner.slots.register({ name: 'plugins.detail.actions', id: COMPUTER_ITEM,
         locale: 'desktop-next', inject: () => ({ context: inner }),
       }, ComputerUseActions)
-      return () => { actions(); hiddenItem(); item(); for (const off of hidden) off(); dispose() }
+      // A third-party bundle the page's own Update does not cover is replaced from its page instead of uninstalled.
+      const versionSwitch = inner.slots.register({ name: 'plugins.detail.actions', id: VERSION_SWITCH_ITEM,
+        locale: 'desktop-next', inject: () => ({ context: inner }),
+      }, VersionSwitchActions)
+      return () => { versionSwitch(); actions(); hiddenItem(); item(); for (const off of hidden) off(); dispose() }
     })
     if (OAR_LAUNCH_PRESETS !== undefined) registerLaunchPresets(inner, OAR_LAUNCH_PRESETS)
   })
