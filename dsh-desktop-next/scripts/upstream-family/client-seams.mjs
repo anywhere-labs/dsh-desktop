@@ -3,6 +3,7 @@
  * Existing official views and their controllers remain the owners of onboarding and plugin management.
  */
 import assert from 'node:assert/strict'
+import { localizeInstalledDialog } from './localize-install.ts'
 import { execFileSync } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -243,6 +244,9 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 })
 
 patchPackage('dsh-client-ui-plugin-manager', ({ once, append }) => {
+  once('function SubjectCard(', `${localizeInstalledDialog.toString()}\nfunction SubjectCard(`)
+  once('title:confirmed?.title??subject.name??subject.spec', 'title:subject.displayTitle??confirmed?.title??subject.name??subject.spec')
+  once('install:state.install,t,onClose:props.closeInstall', 'install:localizeInstalledDialog(state.install,state.packages,resolveText),t,onClose:props.closeInstall')
   once('const SLOTS=[', 'const SLOTS=[`plugins.group`,`plugins.bundle.hidden`,`plugins.item.hidden`,')
   once('let ledger={items:[],', 'let ledger={items:[],groups:[],hiddenBundles:new Set,hiddenItems:new Set,')
   // A Desktop group names its member bundles, in page order, through the face its registration injects.
