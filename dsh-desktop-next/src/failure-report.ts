@@ -141,7 +141,8 @@ function rendererLines(renderer: RendererDiagnosticsSnapshot): string[] {
     `window: ${renderer.view.visibility}, ${renderer.view.focused === true ? 'focused' : renderer.view.focused === false ? 'unfocused' : 'focus unknown'}${renderer.view.reducedMotion === true ? ', reduced motion' : ''}, ${size(renderer.view.width, renderer.view.height)}@${String(renderer.view.devicePixelRatio ?? '?')}x`,
     `dom: ${String(renderer.dom.elements ?? '?')} elements`,
     `long tasks: ${renderer.longTasks === null ? 'unmeasured' : `${String(renderer.longTasks.count)} in ${String(renderer.longTasks.totalMs)} ms`}`,
-    `animations: ${String(renderer.animations.length)} running of ${String(renderer.animationsTotal)}`,
+    renderer.animationsTotal === null ? 'animations: not listed by the periodic sample'
+      : `animations: ${String(renderer.animations.length)} running of ${String(renderer.animationsTotal)}`,
     ...renderer.animations.map(animation => `  ${animation.name} on ${animation.target}${animation.pseudo ?? ''}${animation.infinite ? ' (infinite)' : ''}${animation.currentTime === null ? '' : ` at ${String(animation.currentTime)} ms`}`),
     `body layers: ${String(renderer.layers.length)}`,
     ...renderer.layers.map(layer => `  ${layer.tag}${layer.id === null ? '' : `#${layer.id}`}${layer.className === null ? '' : `.${layer.className.trim().split(/\s+/u).slice(0, 3).join('.')}`} ${layer.position}, ${String(layer.children)} children`),

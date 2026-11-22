@@ -538,7 +538,7 @@ it('captures scoped client errors from Electron console-message events without c
     await vi.waitFor(() => expect(fixture.diagnosticAppend.mock.calls.filter(([record]) => record?.event === 'shell-environment.resolved')).toEqual([[expect.objectContaining({ source: 'desktop' })]]))
     fixture.diagnosticAppend.mockClear()
     Object.assign(fixture.preferences, { developerLogging: true })
-    consoleMessage.emit('console-message', { level: 'warning', message: '[next-ui-diagnostic] aa=false' })
+    consoleMessage.emit('console-message', { level: 'warning', message: '[plugin] cache refresh skipped' })
     consoleMessage.emit('console-message', { message: "slot entry crashed in 'sidebar.footer.action': error" })
     consoleMessage.emit('console-message', { level: 'warning' })
     consoleMessage.emit('console-message', { level: 'warning', message: 'unrelated output' })
@@ -550,7 +550,7 @@ it('captures scoped client errors from Electron console-message events without c
     Object.defineProperty(owner, 'webContents', { get() { throw new Error('Object has been destroyed') } })
     expect(() => consoleMessage.emit('console-message', { level: 'error', message: 'late teardown error' })).not.toThrow()
     expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ message: 'late teardown error', fields: { webContentsId: consoleMessage.id } }))
-    expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ source: 'renderer', event: 'console', message: '[next-ui-diagnostic] aa=false', level: 'warn', developer: true }))
+    expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ source: 'renderer', event: 'console', message: '[plugin] cache refresh skipped', level: 'warn', developer: true }))
     expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({ source: 'renderer', level: 'error', developer: false }))
   } finally {
     vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })

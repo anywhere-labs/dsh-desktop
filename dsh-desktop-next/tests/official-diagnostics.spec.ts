@@ -7,10 +7,11 @@ vi.mock('@deepseek-ai/dsh-host-plugin-inventory', () => ({ readPluginInventory: 
 beforeEach(() => vi.resetAllMocks())
 function environment(inspector?: object) {
   const record = vi.fn()
+  const loader = { entries: () => { throw new Error('Desktop must not reconstruct official inventory') } }
   const ctx = {
     fiber: { state: 2 },
-    get: (key: string) => key === 'inspector' ? inspector : key === 'loader' ? {} : undefined,
-    loader: { entries: () => { throw new Error('Desktop must not reconstruct official inventory') } },
+    get: (key: string) => key === 'inspector' ? inspector : key === 'loader' ? loader : key === 'pluginPackages' ? {} : undefined,
+    loader,
   } as unknown as Context
   return { ctx, record }
 }
@@ -18,7 +19,13 @@ it('uses the official inventory projection for effective enablement and named li
   const { ctx, record } = environment()
   vi.mocked(readPluginInventory).mockResolvedValue({ entries: [{ entryId: 'plugin-a', moduleName: 'example', enabled: false, fiberPhase: 'active' }] } as never)
   await recordOfficialPluginInventory(ctx, record)
-  expect(readPluginInventory).toHaveBeenCalledExactlyOnceWith(ctx)
+  expect(readPluginInventory).toHaveBeenCalledOnce()
+  // Only the Loader is passed on: with `pluginPackages` the official reader would read every plugin's metadata files.
+  const view = vi.mocked(readPluginInventory).mock.calls[0]![0] as unknown as { loader: unknown; get(name: string): unknown }
+  expect(view.loader).toBe(ctx.get('loader'))
+  expect(view.get('loader')).toBe(ctx.get('loader'))
+  expect(view.get('pluginPackages')).toBeUndefined()
+  expect(view.get('agentPresets')).toBeUndefined()
   expect(record).toHaveBeenCalledWith(expect.objectContaining({ event: 'plugin.snapshot', fields: {
     api: 'readPluginInventory', pluginId: 'plugin-a', module: 'example', enabled: false, fiberPhase: 'active',
   } }))

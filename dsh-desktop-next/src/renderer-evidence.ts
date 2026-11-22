@@ -7,7 +7,10 @@
  * shows what the interface was drawing shortly before, next to the reason it cannot be sampled now.
  *
  * The refresh is deliberately cheap: a short frame window once a minute while a window exists, and
- * never two samples in flight at once, so a page that ignores one request cannot queue more.
+ * never two samples in flight at once, so a page that ignores one request cannot queue more. It does not
+ * list animations: `document.getAnimations()` grows faster than the animations a page keeps, and a plugin
+ * that leaves a finished one on every message would make this timer stall the page for seconds. Reports
+ * and exports list them from the sample they take at the time.
  */
 import {
   collectRendererDiagnostics,
@@ -47,7 +50,7 @@ export class RollingRendererEvidence {
     if (this.stopped || this.inFlight) return
     this.inFlight = true
     try {
-      const renderer = await collectRendererDiagnostics(this.target(), { sampleMs: RENDERER_ROLLING_SAMPLE_MS, timeoutMs: RENDERER_ROLLING_TIMEOUT_MS })
+      const renderer = await collectRendererDiagnostics(this.target(), { sampleMs: RENDERER_ROLLING_SAMPLE_MS, timeoutMs: RENDERER_ROLLING_TIMEOUT_MS, animations: false })
       if (renderer.available) this.latest = { snapshot: renderer, takenAt: this.now() }
     } finally {
       this.inFlight = false

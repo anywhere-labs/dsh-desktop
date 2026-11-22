@@ -150,6 +150,27 @@ it('runs the probe against a minimal page and reports what it sees', async () =>
   expect(snapshot.frameLoop.frames).toBeGreaterThan(0)
 })
 
+it('leaves the animations out when asked, without calling document.getAnimations()', async () => {
+  const getAnimations = vi.fn(() => { throw new Error('the periodic sample must not list animations') })
+  const pageDocument = {
+    visibilityState: 'visible', hasFocus: () => true, getAnimations,
+    getElementsByTagName: () => [{}, {}], body: { children: [] },
+  }
+  const schedule: (() => void)[] = []
+  let clock = 0
+  const run = new Function('document', 'performance', 'requestAnimationFrame', 'setTimeout', 'clearTimeout', 'getComputedStyle', 'matchMedia', 'innerWidth', 'innerHeight', 'devicePixelRatio', 'PerformanceObserver', `return ${rendererDiagnosticsProbe(50, false)}`)
+  const pending = run(pageDocument, { now: () => (clock += 20) }, (callback: () => void) => { schedule.push(callback) },
+    () => 0, () => {}, () => ({ position: 'static' }), () => ({ matches: false }), 800, 600, 1, undefined)
+  while (schedule.length > 0) schedule.shift()!()
+  expect(await pending).toMatchObject({ dom: { elements: 2 }, animations: [], animationsTotal: null })
+  expect(getAnimations).not.toHaveBeenCalled()
+  // A page that answers with animations anyway does not get them into the snapshot.
+  const { target, executeJavaScript } = page(async () => sample())
+  await expect(collectRendererDiagnostics(target, { animations: false })).resolves.toMatchObject({ animations: [], animationsTotal: null, dom: { elements: 12_345 } })
+  expect(executeJavaScript.mock.calls[0]?.[0]).toContain('listAnimations = false')
+  expect(rendererDiagnosticsProbe()).toContain('listAnimations = true')
+})
+
 it('summarizes the sample for the readable log', async () => {
   const renderer = await collectRendererDiagnostics(page(async () => sample()).target)
   expect(rendererDiagnosticsFields(renderer)).toEqual({

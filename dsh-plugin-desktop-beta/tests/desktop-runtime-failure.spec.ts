@@ -237,7 +237,7 @@ it('falls back to the last known renderer sample when the page cannot answer', a
     sample: {
       available: true as const, sampledAt: '2026-11-13T00:00:00.000Z', sampleMs: 500,
       view: { visibility: 'visible', focused: true, reducedMotion: false, width: 1280, height: 840, devicePixelRatio: 2 },
-      dom: { elements: 12 }, animations: [], animationsTotal: 0, layers: [],
+      dom: { elements: 12 }, animations: [], animationsTotal: null, layers: [],
       frameLoop: { frames: 30, elapsedMs: 500, framesPerSecond: 60, sampledBy: 'raf' as const },
       longTasks: null,
     },
@@ -247,4 +247,5 @@ it('falls back to the last known renderer sample when the page cannot answer', a
   const file = await runtime.failureReportFile()
   if (file === undefined) throw new Error('expected a saved failure report')
   await vi.waitFor(() => { expect(readFileSync(file, 'utf8')).toContain('last known: 42 s before the failure') })
+  expect(readFileSync(file, 'utf8')).toContain('dom: 12 elements\nlong tasks: unmeasured\nanimations: not listed by the periodic sample\n')
 })
