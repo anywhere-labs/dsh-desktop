@@ -17,7 +17,7 @@ import { ComputerUsePluginArtwork } from './computer-use-command-ui.tsx'
 import {
   BUILT_IN_MARKET_SOURCES, COMMUNITY_MARKET as COMMUNITY, configureSingleMarketToOfficial, DSH_MARKET as MARKET,
   importMarketSourcesToOfficial, marketToggleTargets, OFFICIAL_CONFIGURABLE_MARKET_SOURCES, OFFICIAL_MARKET,
-  removeMarketSourcesFromOfficial, resolveActiveMarketSource, toggleMarketEndpointInOfficial,
+  readDshMarketRegion, removeMarketSourcesFromOfficial, resolveActiveMarketSource, toggleMarketEndpointInOfficial,
   type BuiltInMarketKey, type MarketName, type MarketRuntimeState,
 } from './market-toggle.ts'
 import { OFFICIAL_OAR_SUBAGENTS, OFFICIAL_PLUGIN_INDEX } from '../upstream-family-labels.ts'
@@ -298,15 +298,9 @@ function MarketSourcesDialog({ open, onClose, context, bundles, preferredMarket,
         }
       }
       if (dshMarketEnabled) {
-        try {
-          const response = await fetch('/dshmarket/settings', { cache: 'no-store', signal: controller.signal })
-          if (response.ok) {
-            const payload = await response.json() as { region?: unknown }
-            if (payload.region === 'global' || payload.region === 'china') nextRuntime.dshMarketRegion = payload.region
-          }
-        } catch {
-          // Fallback to default dshmarket region when unavailable.
-        }
+        // Unset while dshmarket's status route is unavailable, which selects the default region.
+        const region = await readDshMarketRegion(controller.signal)
+        if (region !== undefined) nextRuntime.dshMarketRegion = region
       }
       if (!disposed) setRuntime(nextRuntime)
       if (officialEnabled) {

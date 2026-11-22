@@ -21,6 +21,23 @@ export interface MarketRuntimeState {
   readonly dshMarketRegion?: 'global' | 'china'
 }
 
+/**
+ * Read dshmarket's download region from `GET /dsh-market/status`, or `undefined` while that route is unavailable.
+ *
+ * dshmarket has no settings route for the region: the status route reports it as `region`, and
+ * `POST /dsh-market/region` changes it.
+ */
+export async function readDshMarketRegion(signal?: AbortSignal): Promise<MarketRuntimeState['dshMarketRegion']> {
+  try {
+    const response = await fetch('/dsh-market/status', { cache: 'no-store', ...(signal === undefined ? {} : { signal }) })
+    if (!response.ok) return undefined
+    const payload = await response.json() as { region?: unknown }
+    return payload.region === 'global' || payload.region === 'china' ? payload.region : undefined
+  } catch {
+    return undefined
+  }
+}
+
 export interface ActiveMarketResolution {
   readonly enabled: boolean
   readonly bundle: MarketName | null
