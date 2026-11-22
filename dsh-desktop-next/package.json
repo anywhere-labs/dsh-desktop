@@ -13,7 +13,7 @@
   "type": "module",
   "main": "lib/main.js",
   "engines": {
-    "node": ">=24.9.0"
+    "node": "^24.22.3"
   },
   "scripts": {
     "build": "node scripts/clean.mjs && node ../scripts/run-parallel.mjs \"tsdown\" \"vite build --config vite.client.config.ts\" \"vite build --config vite.native-ui.config.ts\" && node scripts/verify-build-output.mjs",

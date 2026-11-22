@@ -6,7 +6,7 @@ A separate experimental package based on DeepSeek Harness **0.2.3-alpha.2**. The
 
 ## Development and verification
 
-Run from the outer repository root with Node.js `^22.19.0` or `>=24.0.0` and Corepack's Yarn 4.18.0:
+Run from the outer repository root with Node.js `^24.22.3` and Corepack's Yarn 4.18.0:
 
 ```sh
 git submodule update --init --recursive

@@ -6,7 +6,7 @@
 
 ## 开发与验证
 
-在外层仓库根目录执行，使用 Node.js `^22.19.0` 或 `>=24.0.0`，以及 Corepack 提供的 Yarn 4.18.0：
+在外层仓库根目录执行，使用 Node.js `^24.22.3`，以及 Corepack 提供的 Yarn 4.18.0：
 
 ```sh
 git submodule update --init --recursive

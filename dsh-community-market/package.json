@@ -64,7 +64,7 @@
     "SECURITY.i18n.yaml"
   ],
   "engines": {
-    "node": ">=24.9.0"
+    "node": "^24.22.3"
   },
   "scripts": {
     "build": "node scripts/clean.mjs && yarn run generate:types && node ../scripts/run-parallel.mjs \"tsdown\" \"tsc -p tsconfig.json\" \"tsc -p tsconfig.client.json --emitDeclarationOnly\" && node scripts/verify-client-externals.mjs",

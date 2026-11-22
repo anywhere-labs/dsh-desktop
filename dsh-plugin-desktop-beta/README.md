@@ -250,7 +250,7 @@ Commands run from `/mnt/<drive>` are valid but slower than a checkout stored on 
 
 ### Local Windows x64 installer
 
-Use a native Windows x64 machine with Git and x64 Node `22.23.2` (the same release used by CI). The packaging command accepts Node `22.19+` and Node `24.x`, whose official distributions include the required Corepack command. From PowerShell in a fresh `v2` checkout, run:
+Use a native Windows x64 machine with Git and x64 Node `24.22.3` (the same release used by CI). Any Node `^24.22.3` release works; its official distribution includes the required Corepack command. From PowerShell in a fresh `v2` checkout, run:
 
 ```powershell
 git submodule update --init --recursive
