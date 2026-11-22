@@ -510,14 +510,17 @@ try {
   assert.equal(await communityChoice.getAttribute('aria-checked'), 'false')
   assert.equal(await remote.isChecked(), true)
   await marketFooter.waitFor({ state: 'hidden' })
-  await openSettingsPanel()
-  await page.getByRole('dialog').getByRole('button', { name: /^(插件市场|Plugin Market)$/ }).click()
+  // dshmarket leaves its Settings entry off by default on a Host whose Plugins page
+  // takes its tab, so the page is opened from that tab, the way users reach it.
+  const pluginViews = page.getByRole('tablist', { name: /^(插件视图|Plugin views)$/ })
+  await pluginViews.getByRole('tab', { name: /^(插件市场|Plugin Market)$/ }).click()
   // Exercise the real third-party page, not just its registration or toggle. Older
   // dshmarket bundles reference removed icon exports and crash only when rendered.
   await page.locator('[data-dsh-market-root]').waitFor({ state: 'visible' })
   assert.ok(await page.locator('[data-dsh-market-root] svg').count() > 0)
   assert.deepEqual(errors, [])
-  await page.getByRole('button', { name: /^(关闭|Close)$/ }).click()
+  await pluginViews.getByRole('tab', { name: /^(已安装|Installed)$/ }).click()
+  await controls.waitFor({ state: 'visible' })
   await assertMarketStyles('after opening and closing dsh-market')
   await communityChoice.click({ position: { x: 10, y: 10 } })
   await waitSelected('[data-next-markets] [role="radio"]:first-child')
