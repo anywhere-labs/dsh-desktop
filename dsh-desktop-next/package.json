@@ -512,7 +512,8 @@
       ".desktop-build/payload/assets/**/*",
       ".desktop-build/payload/build/**/*",
       "**/node_modules/@deepseek-ai/dsh-skill-office/**/*",
-      "**/node_modules/@deepseek-ai/dsh-cua-macos/**/*"
+      "**/node_modules/@deepseek-ai/dsh-cua-macos/**/*",
+      "**/node_modules/@deepseek-ai/dsh-cua-windows/native/bin/**/*"
     ]
   }
 }

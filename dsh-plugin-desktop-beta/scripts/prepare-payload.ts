@@ -1,4 +1,4 @@
-import { prepareCuaNative } from './upstream-family.ts'
+import { prepareCuaNative, prepareCuaWindowsNative } from './upstream-family.ts'
 /** Materialize the Next payload independently of Electron Builder, then seal it. */
 import { chmodSync, statSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -11,6 +11,7 @@ import type { MacPackageArch } from './mac-runtime.ts'
 import { DESKTOP_RUNTIME_FILE, physicalPayload, sealPayloadAsync, type DesktopRuntimeDescriptor } from '../src/runtime-tree.ts'
 import { packagingStep, packagingStepSync } from './packaging-step.ts'
 import { windowsCodePayload, writeWindowsCodeFiles } from './windows-asar-unpack.ts'
+import { windowsArchitecture } from '../../dsh-plugin-desktop/scripts/windows-architecture.ts'
 
 /**
  * Shell entries copied beside the dependency tree; `package.json` is written separately. Windows and Linux show the
@@ -270,6 +271,9 @@ export async function preparePayload(options: PreparePayloadOptions): Promise<De
       if (arch !== 'arm64' && arch !== 'x64') throw new Error(`Unsupported macOS CUA architecture: ${arch}`)
       return arch
     })))
+  }
+  if (target.platform === 'win32') {
+    packagingStepSync('payload:prepare-cua', () => prepareCuaWindowsNative(desktopRoot, target.archs.map(arch => windowsArchitecture(arch))))
   }
   const closure = packagingStepSync('payload:collect-dependencies', () => collectProductionClosure(desktopRoot, target))
   const modules = join(output, 'node_modules')

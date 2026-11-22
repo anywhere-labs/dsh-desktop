@@ -38,12 +38,16 @@ export function assertWindowsArchitecture(path: string, arch: WindowsArchitectur
   } finally { closeSync(fd) }
 }
 
-/** In-process addons and DLLs must match Electron; an NSIS bootstrapper can use another CPU. */
-export function verifyWindowsNativeTree(root: string, arch: WindowsArchitecture): number {
+/**
+ * In-process addons and DLLs must match Electron; an NSIS bootstrapper can use another CPU.
+ * @param skip - Paths left out with everything below them: programs that run as processes of their own and check their files themselves.
+ */
+export function verifyWindowsNativeTree(root: string, arch: WindowsArchitecture, skip?: (path: string) => boolean): number {
   let checked = 0
   for (const entry of readdirSync(root, { withFileTypes: true })) {
     const path = join(root, entry.name)
-    if (entry.isDirectory()) checked += verifyWindowsNativeTree(path, arch)
+    if (skip?.(path) === true) continue
+    if (entry.isDirectory()) checked += verifyWindowsNativeTree(path, arch, skip)
     else if (entry.isFile() && ['.node', '.dll', '.pyd'].includes(extname(entry.name).toLowerCase())) {
       assertWindowsArchitecture(path, arch)
       checked++
