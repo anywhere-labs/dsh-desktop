@@ -8,6 +8,7 @@ import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSy
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
+import { OFFICIAL_CONNECTORS, OFFICIAL_OAR_SUBAGENTS } from '../../src/upstream-family-labels.ts'
 
 const root = resolve(import.meta.dirname, '../../..')
 const require = createRequire(join(root, 'dsh-plugin-desktop-beta/package.json'))
@@ -16,6 +17,35 @@ const MagicString = require('magic-string')
 const remapping = require('@jridgewell/remapping')
 const ts = require('typescript')
 const version = '0.2.3-alpha.2'
+/** The languages official catalog entries carry, as upstream's catalog generator requires them. */
+const CATALOG_LANGUAGES = ['de', 'en', 'es', 'fr', 'ja', 'pt', 'ru', 'zh']
+
+/**
+ * Read a connector's catalog entry from its vendored tarball, as upstream's catalog generator reads an on-demand
+ * bundle: its localized title and description, and its icon as a data URI. No provider code is evaluated.
+ */
+function connectorCatalogEntry(name) {
+  const temp = mkdtempSync(join(tmpdir(), 'dsh-client-seam-catalog-'))
+  try {
+    execFileSync('tar', ['-xzf', join(root, `vendor/dsh-runtime/${version}/deepseek-ai-${name.slice('@deepseek-ai/'.length)}-${version}.tgz`), '-C', temp])
+    const dir = join(temp, 'package')
+    const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'))
+    assert.equal(manifest.name, name)
+    assert.ok(manifest.dsh?.bundle?.patch !== undefined && manifest.dsh.bundle.platforms === undefined, `${name}: expected a bundle for every platform`)
+    assert.ok(typeof manifest.icon === 'string' && manifest.icon.endsWith('.svg'), `${name}: expected an SVG icon`)
+    const title = {}
+    const description = {}
+    for (const language of CATALOG_LANGUAGES) {
+      const { meta } = JSON.parse(readFileSync(join(dir, 'locale', `${language}.json`), 'utf8'))
+      assert.ok(typeof meta?.title === 'string' && meta.title.trim() !== '' && typeof meta.description === 'string'
+        && meta.description.trim() !== '', `${name}: expected ${language} title and description`)
+      title[language] = meta.title
+      description[language] = meta.description
+    }
+    const icon = `data:image/svg+xml;base64,${readFileSync(join(dir, manifest.icon)).toString('base64')}`
+    return { packageName: name, meta: { title, description, icon } }
+  } finally { rmSync(temp, { recursive: true, force: true }) }
+}
 
 function onboarding() {
   function DesktopOnboardingNavigation({ busy, t, onBack, onSkip }) {
@@ -171,14 +201,35 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 })
 
 patchPackage('dsh-client-ui-plugin-manager', ({ once, append }) => {
-  once('const SLOTS=[', 'const SLOTS=[`plugins.bundle.hidden`,`plugins.item.hidden`,')
-  once('let ledger={items:[],', 'let ledger={items:[],hiddenBundles:new Set,hiddenItems:new Set,')
-  once('bundles:keysOf(`plugins.bundle.config`)', 'hiddenBundles:keysOf(`plugins.bundle.hidden`),hiddenItems:keysOf(`plugins.item.hidden`),bundles:keysOf(`plugins.bundle.config`)')
+  once('const SLOTS=[', 'const SLOTS=[`plugins.group`,`plugins.bundle.hidden`,`plugins.item.hidden`,')
+  once('let ledger={items:[],', 'let ledger={items:[],groups:[],hiddenBundles:new Set,hiddenItems:new Set,')
+  // A Desktop group names its member bundles, in page order, through the face its registration injects.
+  once('bundles:keysOf(`plugins.bundle.config`)', 'groups:ctx.slots.entries(`plugins.group`).map(entry=>({id:entry.options.id??``,label:(0,_deepseek_ai_dsh_client_ui_slots.resolveSlotLabel)(entry.options.label)??``,bundles:[...entry.inject?.().bundles??[]]})),hiddenBundles:keysOf(`plugins.bundle.hidden`),hiddenItems:keysOf(`plugins.item.hidden`),bundles:keysOf(`plugins.bundle.config`)')
   once('const listed=state.packages.filter(pkg=>!HIDDEN_BUNDLES', 'const available=state.packages.filter(pkg=>!HIDDEN_BUNDLES')
-  once('const mine=listed.filter', 'const listed=available.filter(pkg=>!ledger.hiddenBundles.has(pkg.name));const mine=listed.filter')
+  once('const mine=listed.filter', 'const desktopGroupBundles=new Set(ledger.groups.flatMap(group=>group.bundles));const listed=available.filter(pkg=>!ledger.hiddenBundles.has(pkg.name));const mine=listed.filter')
+  // Group members leave the official groups and More list; a group's own section and More page draw the official cards.
+  once('const official=listed.filter(pkg=>pkg.official)', 'const official=listed.filter(pkg=>pkg.official&&!desktopGroupBundles.has(pkg.name))')
   once('?listed.find(pkg=>pkg.name===view.name)', '?available.find(pkg=>pkg.name===view.name)')
+  once('const more=ordered;', 'const more=ordered;const desktopGroups=ledger.groups.map(group=>({...group,packages:group.bundles.flatMap(name=>listed.filter(pkg=>pkg.name===name))})).filter(group=>group.packages.length>0);const openGroup=view.group===void 0?void 0:desktopGroups.find(group=>group.id===view.group);')
+  // The main list shows a group like the official experimental group: its title, More, and the members the profile enabled.
+  once('return(0,react_jsx_runtime.jsxs)(`section`,{className:PluginManagerPage_module_css_default.page,', 'const renderDesktopGroup=group=>{const cards=group.packages.filter(pkg=>pkg.enabled).map(packageCard);return(0,react_jsx_runtime.jsxs)(`section`,{className:PluginManagerPage_module_css_default.group,"data-plugin-scope":`global`,"data-plugin-group":`desktop-${group.id}`,children:[(0,react_jsx_runtime.jsxs)(`div`,{className:PluginManagerPage_module_css_default.groupHead,children:[(0,react_jsx_runtime.jsx)(`h3`,{className:PluginManagerPage_module_css_default.groupTitle,children:group.label}),(0,react_jsx_runtime.jsxs)(_deepseek_ai_dsh_client_ui_primitives.Button,{size:`sm`,className:PluginManagerPage_module_css_default.groupMore,onClick:()=>{setView({kind:`more`,group:group.id})},children:[t(`moreAction`),(0,react_jsx_runtime.jsx)(_deepseek_ai_dsh_client_ui_primitives.IconChevronRightOutlineRegular,{size:14,"aria-hidden":`true`})]})]}),cards.length>0?(0,react_jsx_runtime.jsx)(`ul`,{className:PluginManagerPage_module_css_default.cards,children:cards}):null]},`desktop-group:${group.id}`)};return(0,react_jsx_runtime.jsxs)(`section`,{className:PluginManagerPage_module_css_default.page,')
+  once('renderGroup(`basic`,t(`basicTitle`),basicCards)', 'desktopGroups.map(renderDesktopGroup),renderGroup(`basic`,t(`basicTitle`),basicCards)')
+  // A group's More page is the official one with the group's title, its notice and its members.
+  once('children:t(`moreTitle`)', 'children:openGroup!==void 0?openGroup.label:t(`moreTitle`)')
+  once('children:(0,react_jsx_runtime.jsx)(`ul`,{className:PluginManagerPage_module_css_default.cards,children:more.map(packageCard)})', 'children:(0,react_jsx_runtime.jsxs)(react_jsx_runtime.Fragment,{children:[openGroup===void 0?null:renderSlot(`plugins.group`,{group:openGroup.id},{only:openGroup.id}),(0,react_jsx_runtime.jsx)(`ul`,{className:PluginManagerPage_module_css_default.cards,children:(openGroup===void 0?more:openGroup.packages).map(packageCard)})]})')
+  // A member's page and its rows return to the group's More page, which the breadcrumb names.
+  once('name:pkg.name,...showsMoreList?{from:`more`}:{}', 'name:pkg.name,...showsMoreList?{from:`more`,...openGroup===void 0?{}:{group:openGroup.id}}:{}')
+  once('name:activated.name,...showsMoreList?{from:`more`}:{}', 'name:activated.name,...showsMoreList?{from:`more`,...openGroup===void 0?{}:{group:openGroup.id}}:{}')
+  once('backToMore?{from:`more`}:{}', 'backToMore?{from:`more`,...openGroup===void 0?{}:{group:openGroup.id}}:{}')
+  once('setView({kind:backToMore?`more`:`list`})', 'setView({kind:backToMore?`more`:`list`,...backToMore&&openGroup!==void 0?{group:openGroup.id}:{}})')
+  once('inMore:backToMore,', 'inMore:backToMore,moreLabel:backToMore&&openGroup!==void 0?openGroup.label:void 0,')
+  once('renderFactory,inMore,versions,detail,onBack', 'renderFactory,inMore,moreLabel,versions,detail,onBack')
+  once('{name:t(`moreTitle`)}', '{name:moreLabel??t(`moreTitle`)}')
+  once('crumbText:t(inMore?`moreTitle`:`crumbRoot`)', 'crumbText:inMore&&moreLabel!==void 0?moreLabel:t(inMore?`moreTitle`:`crumbRoot`)')
+  // The OAR subagents Desktop lists among its Beta plugins keep the Experimental tag the official cards draw.
+  if (OFFICIAL_OAR_SUBAGENTS !== undefined) once('const EXPERIMENTAL_BUNDLES=new Set([', `const EXPERIMENTAL_BUNDLES=new Set([\`${OFFICIAL_OAR_SUBAGENTS.bundle}\`,`)
   once('const basicCards=ledger.items.map(', 'const basicCards=ledger.items.filter(item=>!ledger.hiddenItems.has(item.id)).map(')
-  once('children:{"plugins.add.actions":', 'children:{"plugins.overview":{kind:"list",scope:"root"},"plugins.bundle.hidden":{kind:"keyed",scope:"root"},"plugins.item.hidden":{kind:"keyed",scope:"root"},"plugins.add.actions":')
+  once('children:{"plugins.add.actions":', 'children:{"plugins.overview":{kind:"list",scope:"root"},"plugins.group":{kind:"list",scope:"root"},"plugins.bundle.hidden":{kind:"keyed",scope:"root"},"plugins.item.hidden":{kind:"keyed",scope:"root"},"plugins.add.actions":')
   once('installedCards&&!loaded?', `onInstalled&&showsMainList&&loaded?renderSlot('plugins.overview', {
     onOpenBundle: name => {
       if (!available.some(pkg => pkg.name === name)) return;
@@ -200,9 +251,20 @@ patchPackage('dsh-client-ui-plugin-manager', ({ once, append }) => {
     } };
     'plugins.bundle.hidden': { kind: 'keyed'; scope: 'root' };
     'plugins.item.hidden': { kind: 'keyed'; scope: 'root' };
+    /** A group of bundles with its own section and More page; the entry renders the notice above its cards and injects \`{ bundles }\`, its members in order. */
+    'plugins.group': { kind: 'list'; scope: 'root'; owner: { group: string } };
   }
 }`)
 })
+
+// The official connector plugins the release publishes without listing them install on demand like the official
+// subagents, and leave a Profile updated to another release as those do.
+if (OFFICIAL_CONNECTORS !== undefined) {
+  patchPackage('dsh-official-bundles', ({ once }) => {
+    const entries = OFFICIAL_CONNECTORS.map(name => JSON.stringify(connectorCatalogEntry(name), null, '\t')).join(', ')
+    once('}];\n//#endregion\nexport {', `}];\n// DSH Desktop offers the official connector plugins this release publishes without listing them.\nOFFICIAL_ON_DEMAND_CATALOG.push(${entries});\nON_DEMAND_BUNDLES.push(${OFFICIAL_CONNECTORS.map(name => JSON.stringify(name)).join(', ')});\n//#endregion\nexport {`)
+  }, () => 'lib/index.js')
+}
 
 // Plugins can still deliver a damaged in-memory draft to the editor, outside the persisted-draft decoder.
 patchPackage('dsh-client-ui-conversation', ({ once }) => {
