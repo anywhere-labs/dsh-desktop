@@ -60,7 +60,7 @@ desktop Client module 会校验模式与平台 marker，在兼容模式下只注
 
 Cordis row 会在 profile 激活期间登记原生窗口参数。Launcher 只在 `app-boot` 完成并审计整个 profile 后创建窗口，因此首个 renderer manifest 会包含所有已激活的官方、desktop 与第三方 client plugin，同时插件自身不会在 Loader entry 内等待整棵 Loader tree。
 
-在 Windows 上，Launcher 会固定使用 browse 目录选择 backend，并保留完整的应用内目录面板。桌面构建通过补丁在该面板中加入一个小型系统文件夹图标；图标经同源路由调用 Electron 的 `dialog.showOpenDialog`，选中的路径继续进入面板原有的 workspace 接纳流程，取消后面板保持打开。普通浏览器与远程启动不会获得这个桌面桥接。macOS 与 Linux 仍使用上游自适应 chooser。
+在主窗口添加工作区时，macOS 与 Windows 会打开系统文件夹对话框（Finder、资源管理器），与上游桌面端一致。桌面端把采样到的局域网地址作为可信来源交给 Host，上游的自适应目录选择器据此挂载应用内目录浏览面板，因此客户端 bundle 在主窗口里用基于 preload 桥接的无界面驱动遮蔽该占位。Linux 上的主窗口保留 Host 挂载的面板：Electron 在 Linux 上经桌面环境的文件选择 portal 打开系统对话框，portal 缺失或出错时只会返回“已取消”，添加工作区会毫无反应（#1719）。通过本机或局域网访问的普通浏览器仍使用 Host 挂载的面板。
 
 本次 alpha runtime 迁移不再携带 Desktop 自有的工作区文件夹拖放行为或聊天附件拖放隔离补丁。在按 alpha Client UI 重新评估这些交互前，请使用普通工作区选择流程。
 

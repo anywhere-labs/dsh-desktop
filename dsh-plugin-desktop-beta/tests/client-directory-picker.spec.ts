@@ -27,7 +27,7 @@ vi.mock('react', async importOriginal => ({
 }))
 import {
   DESKTOP_DIRECTORY_FLOW_PRIORITY, DESKTOP_DIRECTORY_PICKER_GLOBAL, DIRECTORY_FLOW_HOLES, NativeDirectoryFlow,
-  desktopDirectoryPicker, registerDesktopDirectoryPicker, type NativeDirectoryFlowInjected,
+  desktopDirectoryPicker, registerDesktopDirectoryPicker, shadowsHostDirectoryFlow, type NativeDirectoryFlowInjected,
 } from '../src/client/directory-picker.ts'
 
 type FlowProps = DirectoryFlowOwnerProps & NativeDirectoryFlowInjected
@@ -72,6 +72,14 @@ it('reads the Desktop preload bridge only when it exposes a pick call', () => {
   expect(picker).toBeDefined()
   // The bridge call keeps its receiver: contextBridge objects are not detachable.
   return expect(picker!.pick()).resolves.toBe('/picked')
+})
+
+it('keeps the Host-mounted flow on Linux, whose system dialog depends on the desktop portal', () => {
+  expect(shadowsHostDirectoryFlow('linux')).toBe(false)
+  expect(shadowsHostDirectoryFlow('darwin')).toBe(true)
+  expect(shadowsHostDirectoryFlow('win32')).toBe(true)
+  // The preload marks every Desktop document; an unmarked one is not known to be a Linux window.
+  expect(shadowsHostDirectoryFlow(undefined)).toBe(true)
 })
 
 it('shadows all directory-flow holes below the Host-mounted occupant and withdraws as one effect', async () => {
