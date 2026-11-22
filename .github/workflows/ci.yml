@@ -54,7 +54,7 @@ jobs:
           persist-credentials: false
       - uses: actions/setup-node@v6
         with:
-          node-version: 24.14.0
+          node-version: 24.22.3
       - name: Classify changed paths
         id: scope
         shell: bash
@@ -96,7 +96,7 @@ jobs:
       - uses: actions/setup-node@v6
         if: needs.changes.outputs.product == 'true'
         with:
-          node-version: 24.14.0
+          node-version: 24.22.3
       - if: needs.changes.outputs.product == 'true'
         run: corepack enable
       - name: Resolve Yarn cache folder
@@ -203,7 +203,7 @@ jobs:
           submodules: recursive
       - uses: actions/setup-node@v6
         with:
-          node-version: 24.14.0
+          node-version: 24.22.3
           architecture: ${{ matrix.arch }}
       - run: corepack enable
       # The portable-shell upstream scripts must resolve the pinned submodule's own pnpm release on Windows.
@@ -327,7 +327,7 @@ jobs:
           submodules: recursive
       - uses: actions/setup-node@v6
         with:
-          node-version: 24.14.0
+          node-version: 24.22.3
       - run: corepack enable
       - name: Resolve Yarn cache folder
         id: yarn-cache-dir
@@ -411,7 +411,7 @@ jobs:
           submodules: recursive
       - uses: actions/setup-node@v6
         with:
-          node-version: 24.14.0
+          node-version: 24.22.3
       - run: corepack enable
       - name: Resolve Yarn cache folder
         id: yarn-cache-dir
