@@ -45,6 +45,8 @@ const cardCount = (tree: Node): number => nodes(tree).filter(node => typeof node
 function fixture() {
   const hookState: unknown[] = []
   let cursor = 0
+  // Layout effects run after each render, before the next one; the page's scroll memory runs there.
+  const layoutEffects: (() => void)[] = []
   let Page: (props: Record<string, unknown>) => Node
   let navigation: any
   let apply: (context: unknown) => void
@@ -54,10 +56,11 @@ function fixture() {
     if (id === 'react') return {
       useState(initial: unknown) {
         const index = cursor++
-        if (!(index in hookState)) hookState[index] = initial
+        if (!(index in hookState)) hookState[index] = typeof initial === 'function' ? (initial as () => unknown)() : initial
         return [hookState[index], (value: unknown) => { hookState[index] = value }]
       },
       useEffect() {}, useId: () => 'description', useRef: () => ({ current: null }),
+      useLayoutEffect(effect: () => void) { layoutEffects.push(effect) },
     }
     if (id === 'react-dom') return {}
     if (id === '@deepseek-ai/dsh-client-ui-primitives') return new Proxy({}, { get: (_, name) => (props: Node['props']) => jsx(String(name), props) })
@@ -102,23 +105,33 @@ function fixture() {
     groups: [] as { id: string; label: string; bundles: string[] }[],
     hiddenBundles: new Set([remote.name]), hiddenItems: new Set([item.id]) }
   let overview: { onOpenBundle(name: string): void; onOpenItem(id: string): void }
+  let tab: { openPackage(name: string): void }
+  // Tabs other plugins contribute through `plugins.tab`.
+  const tabs: { id: string; label: string }[] = []
   const setEnabled = vi.fn()
   const setRowEnabled = vi.fn()
   const props = {
     useStore: (select: (state: unknown) => unknown) => select(navigation.getSnapshot()), actions: navigation.actions,
     t: (key: string) => key, ensure: vi.fn(), resolveText: (text: string) => text,
-    useConfigurations: () => [], usePluginManager: () => state, useConfigLedger: () => ledger, usePluginTabs: () => [], setEnabled, setRowEnabled,
+    useConfigurations: () => [], usePluginManager: () => state, useConfigLedger: () => ledger, usePluginTabs: () => tabs, setEnabled, setRowEnabled,
     // dsh 0.2.3 reports the page's own plugin synchronization.
     useClientSync: (select: (sync: { syncing: boolean; failures: unknown[] }) => unknown) => select({ syncing: false, failures: [] }), retryClient: vi.fn(),
     useBundleDetails: (select: (details: unknown) => unknown) => select({}), useLocale: (select: (locale: { active: string }) => unknown) => select({ active: 'en' }),
     createHeaderRef: () => () => {}, ensureVersions: vi.fn(), loadDetail: vi.fn(),
     renderSlot: (name: string, owner: Record<string, unknown>, options?: unknown) => {
       if (name === 'plugins.overview') overview = owner as typeof overview
+      if (name === 'plugins.tab') tab = owner as typeof tab
       return jsx('slot', { name, owner, options })
     },
   }
-  return { state, remote, item, ledger, setEnabled, setRowEnabled,
-    page: () => { cursor = 0; return Page!(props) }, overview: () => overview!,
+  return { state, remote, item, ledger, tabs, actions: navigation.actions, setEnabled, setRowEnabled,
+    page: () => {
+      cursor = 0
+      const tree = Page!(props)
+      for (const effect of layoutEffects.splice(0)) effect()
+      return tree
+    },
+    overview: () => overview!, tab: () => tab!,
   }
 }
 
@@ -278,6 +291,76 @@ it('draws a Desktop bundle group like the official experimental group, with its 
   const official = app.page()
   expect(nodes(official).some(node => node.type === 'h1' && node.props.children === 'moreTitle')).toBe(true)
   expect(nodes(official).some(node => node.props.name === 'plugins.group')).toBe(false)
+})
+
+it('returns from item, plugin and row pages, a More list and a contributed tab to the scroll position each was left at', () => {
+  const app = fixture()
+  app.ledger.hiddenBundles.clear()
+  app.ledger.hiddenItems.clear()
+  // One body scrolls every view of the page. The browser moves it when one view's content replaces another's; the
+  // official page leaves that position as it is.
+  const listeners = new Set<() => void>()
+  const body = {
+    scrollTop: 0,
+    addEventListener: (_type: string, listener: () => void) => { listeners.add(listener) },
+    removeEventListener: (_type: string, listener: () => void) => { listeners.delete(listener) },
+  }
+  const scroll = (top: number) => { body.scrollTop = top; for (const listener of listeners) listener() }
+  const card = (tree: Node, name: string): Node => nodes(tree).find(node => typeof node.type === 'function'
+    && node.type.name === 'PackageCard' && node.props.pkg.name === name)!
+  const back = (tree: Node, name: string): void => { component(render(component(tree, name)!), 'DetailTop')!.props.onBack() }
+  nodes(app.page()).find(node => node.props['data-plugin-body'])!.props.ref(body)
+  // A list left at its top, before it was ever scrolled, comes back at its top.
+  app.overview().onOpenItem(app.item.id)
+  const item = app.page()
+  scroll(700)
+  back(item, 'ItemDetail')
+  app.page()
+  expect(body.scrollTop).toBe(0)
+  // The main list, a plugin's page opened from it, and back; opening a page leaves the position to the browser.
+  scroll(480)
+  card(app.page(), 'official-team').props.onOpen()
+  const official = app.page()
+  expect(body.scrollTop).toBe(480)
+  scroll(0)
+  scroll(260)
+  back(official, 'PackageDetail')
+  app.page()
+  expect(body.scrollTop).toBe(480)
+  // The More list, a plugin's page opened from it, and a component row's page opened from that.
+  nodes(app.page()).find(node => typeof node.props.onClick === 'function' && node.props.children?.[0] === 'moreAction')!.props.onClick()
+  const more = app.page()
+  scroll(0)
+  scroll(150)
+  card(more, app.remote.name).props.onOpen()
+  const remote = app.page()
+  scroll(0)
+  scroll(90)
+  component(remote, 'PackageDetail')!.props.configure.open(app.remote.rows[0])
+  const row = app.page()
+  expect(component(row, 'RowDetail')?.props.row.rowId).toBe('bridge')
+  scroll(0)
+  back(row, 'RowDetail')
+  const remoteAgain = app.page()
+  expect(body.scrollTop).toBe(90)
+  back(remoteAgain, 'PackageDetail')
+  expect(groups(app.page())).toEqual(['more'])
+  expect(body.scrollTop).toBe(150)
+  nodes(app.page()).find(node => node.props['aria-label'] === 'backToList')!.props.onClick()
+  app.page()
+  expect(body.scrollTop).toBe(480)
+  // A plugin's page opened from a contributed tab returns to the tab, where it was left.
+  app.tabs.push({ id: 'discover', label: 'Discover' })
+  app.actions.setTab('discover')
+  app.page()
+  scroll(333)
+  app.tab().openPackage('official-team')
+  const fromTab = app.page()
+  expect(component(fromTab, 'PackageDetail')?.props.pkg.name).toBe('official-team')
+  scroll(0)
+  back(fromTab, 'PackageDetail')
+  expect(nodes(app.page()).some(node => node.props.name === 'plugins.tab' && node.props.options.only === 'discover')).toBe(true)
+  expect(body.scrollTop).toBe(333)
 })
 
 

@@ -133,6 +133,48 @@ async function readOnboardingApiKeyPresence(ctx) {
   return unique.some(ref => states[ref].configured)
 }
 
+// One body element scrolls every view of the Plugins page, and upstream leaves its position to whatever the last view
+// left. Each view's position is recorded as the body scrolls, so a deeper view (a plugin's page, a component row's
+// page, a More list) returns to the place its parent view was left at.
+function desktopScrollMemory() {
+  const positions = new Map()
+  let body = null
+  let key
+  let depth = 0
+  const record = () => { if (body !== null && key !== undefined) positions.set(key, body.scrollTop) }
+  return {
+    ref: element => {
+      body?.removeEventListener('scroll', record)
+      body = element
+      body?.addEventListener('scroll', record, { passive: true })
+    },
+    view: (next, nextDepth) => {
+      const back = key !== undefined && nextDepth < depth
+      key = next
+      depth = nextDepth
+      // A view left before it was ever scrolled was left at its top.
+      if (back && body !== null) body.scrollTop = positions.get(next) ?? 0
+    },
+  }
+}
+
+// The official sidebar keeps its pin choices in memory, so every launch shows its entries again. Desktop keeps them
+// with the official store's localStorage persistence under a key of its own; a stored value other than a list of
+// panel ids is dropped before the store reads it.
+function desktopPanelPinsPersistence() {
+  if (typeof localStorage === 'undefined') return undefined
+  const name = 'dsh-desktop.sidebar.panel-pins'
+  try {
+    const raw = localStorage.getItem(name)
+    const value = raw === null ? null : JSON.parse(raw)
+    if (raw !== null && !(Array.isArray(value?.unpinned) && value.unpinned.every(id => typeof id === 'string'))) localStorage.removeItem(name)
+  } catch {
+    // An unparsable value is dropped as well; storage that refuses even that keeps the choices in memory.
+    try { localStorage.removeItem(name) } catch { return undefined }
+  }
+  return { persist: { name } }
+}
+
 function patchPackage(name, edit, entry = () => 'lib/client.js') {
   const temp = mkdtempSync(join(tmpdir(), 'dsh-client-seam-'))
   try {
@@ -243,6 +285,11 @@ patchPackage('dsh-client-ui-plugin-manager', ({ once, append }) => {
   // Stable markers keep native titlebar styling independent of upstream's CSS hash.
   once('className:PluginManagerPage_module_css_default.detailTop,', 'className:PluginManagerPage_module_css_default.detailTop,"data-plugin-page-header":"detail",')
   once('className:PluginManagerPage_module_css_default.pageHead,', 'className:PluginManagerPage_module_css_default.pageHead,"data-plugin-page-header":"list",')
+  // Returning from a deeper view restores the scroll position of the list, More page or tab it was opened from.
+  once('function PluginManagerPage(props){', `${desktopScrollMemory}\nfunction PluginManagerPage(props){`)
+  once('const[headerRef]=(0,react.useState)(props.createHeaderRef);', 'const[headerRef]=(0,react.useState)(props.createHeaderRef);const[desktopScroll]=(0,react.useState)(desktopScrollMemory);')
+  once('const installedPanel=', 'const desktopScrollView=showsMoreList?[`more:${view.group??``}`,1]:showsMainList?[`list:${tab}`,0]:openRow!==void 0?[`row:${view.name}:${view.rowId}`,3]:openPkg!==void 0?[`package:${view.name}`,2]:[`item:${view.id}`,2];(0,react.useLayoutEffect)(()=>{desktopScroll.view(...desktopScrollView)},desktopScrollView);const installedPanel=')
+  once('"data-plugin-body":true,', '"data-plugin-body":true,ref:desktopScroll.ref,')
   append('lib/types/client/slot-contract.d.ts', `declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     'plugins.overview': { kind: 'list'; scope: 'root'; owner: {
@@ -255,6 +302,12 @@ patchPackage('dsh-client-ui-plugin-manager', ({ once, append }) => {
     'plugins.group': { kind: 'list'; scope: 'root'; owner: { group: string } };
   }
 }`)
+})
+
+// Pinning or unpinning a sidebar entry survives a restart of the application.
+patchPackage('dsh-client-ui-sidebar', ({ once }) => {
+  once('function createPanelPins(){', `${desktopPanelPinsPersistence}\nfunction createPanelPins(){`)
+  once('createSnapshotStore)({unpinned:NO_PANELS})', 'createSnapshotStore)({unpinned:NO_PANELS},desktopPanelPinsPersistence())')
 })
 
 // The official connector plugins the release publishes without listing them install on demand like the official

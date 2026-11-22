@@ -148,6 +148,10 @@ dsh plugin update
 
 **更新后的按需插件。** 官方 Codex、Claude Code 子智能体和「Beta 插件」中的官方连接器按需安装到 Profile，版本锁定为安装它们时的 DSH 版本。它们依赖的 DSH 包由 pnpm 放在 Profile 的 `node_modules` 顶层，运行时解析会优先使用这些副本，而不是安装包自带的。更新到其他 DSH 版本后，核心插件会因此加载旧副本，子智能体工具随之消失，或者 Host 无法启动；这些插件本身也不再匹配新版本。因此，Beta 在 Host 解析 Profile 之前，用内置 pnpm 离线移除为其他版本安装的按需插件，效果与在**插件**页移除相同，并在日志中写明移除了哪些。之后**插件**页把它们显示为未安装，打开开关即可安装当前版本。移除失败只记录日志，Host 照常启动，下次启动时重试。
 
+**插件页返回位置。** 在**插件**页从插件详情、组件详情或「更多」页返回时，列表、「更多」页或标签页会回到离开时滚动到的位置。官方页面的所有视图共用一个滚动容器，不为每个视图记录位置，所以返回后列表会回到顶部。打开新页面时仍从顶部显示。该行为由 `patches/dsh-client-ui-plugin-manager@<version>.patch` 加入。
+
+**侧边栏固定状态。** 侧边栏显示哪些导航项、哪些收进「更多」，重启后仍会保留。官方侧边栏只把这些选择保存在内存里；`patches/dsh-client-ui-sidebar@<version>.patch` 借助官方 store 的 localStorage 持久化，把它们保存在 Desktop 自己的键 `dsh-desktop.sidebar.panel-pins` 下。窗口存储位于数据目录中，所以所有 Profile 共用这些选择；通过浏览器访问打开的浏览器各自保存。存储的值如果不是导航项 id 列表，就会被丢弃，所有导航项重新显示。
+
 `dshmarket@1.2.3` 尚未预装，也不是 DSH Desktop 的 dependency。该版本仍从 config/argv 解析 profile，并通过私有 child-process 代码启动 `dsh plugin`；它既不读取 `desktopProfiles`，也不使用 `desktopPnpm`，package exports 也没有 runner injection seam。后续兼容版本必须动态探测 Desktop service，同时在普通 DSH 中保留现有 CLI fallback。此外，`1.2.3` 的源码仓库与 npm tarball 均未包含完整 MIT 许可文本或版权通知，因此该版本尚未通过内置再分发 gate。用户主动安装第三方 package 与 Desktop 将其嵌入 application archive 或 installer 是两个独立边界。
 
 Required injection、可选 Desktop 适配、TypeScript 示例、cancellation 与 fallback 指南详见[面向插件作者的 service 文档](docs/plugin-services.zh.md)。
