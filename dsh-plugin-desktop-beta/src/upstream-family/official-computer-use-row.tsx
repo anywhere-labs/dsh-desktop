@@ -8,10 +8,11 @@
  */
 import { useEffect, useState, type ReactNode } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
-import type { BundleInfo, PluginInfo } from '@deepseek-ai/dsh-api-remotes/client'
+import type { BundleInfo } from '@deepseek-ai/dsh-api-remotes/client'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import { IconChevronRightOutlineRegular, StateDot, Switch } from '@deepseek-ai/dsh-client-ui-primitives'
 import { ComputerUsePluginArtwork } from '../client/computer-use-command-ui.tsx'
+import { readOfficialBundles } from '../client/official-plugin-snapshot.ts'
 
 /** The official Computer Use bundle, which serves every Session while its provider runs. */
 const OFFICIAL_BUNDLE = '@deepseek-ai/dsh-cua-bundle'
@@ -53,7 +54,10 @@ export function installOfficialComputerUseStyles(): () => void {
 export interface OfficialComputerUseOptions {
   context: Context
   t: (chinese: string, english: string) => string
-  /** Whether the Computer Use (Next) page is open; its card in the overview lists no bundle. */
+  /**
+   * Whether the Computer Use (Next) page is open. The card on the Plugins list and the page's header actions render no row;
+   * they ask the Host route once, so the page knows its platform as soon as it opens.
+   */
   page: boolean
   /** The page's reload counter, bumped by plugin-manager changes, window focus and writes. */
   revision: number
@@ -69,6 +73,49 @@ export interface OfficialComputerUseView {
   componentCount(commandActive: boolean): string
 }
 
+/** The fiber phase of each official provider, by module name. */
+type ProviderPhases = Readonly<Record<string, string>>
+
+/** What the client last read about the official bundle; a page that opens again starts from it. */
+interface OfficialComputerUseCache {
+  official: BundleInfo | undefined
+  phases: ProviderPhases
+  platform: OfficialPlatform | undefined
+  supported: boolean
+  /** Whether the Host route has answered once. */
+  hostRead: boolean
+}
+
+const officialComputerUseCache = new WeakMap<Context, OfficialComputerUseCache>()
+
+function officialComputerUseCacheOf(context: Context): OfficialComputerUseCache {
+  let entry = officialComputerUseCache.get(context)
+  if (entry === undefined) {
+    entry = { official: undefined, phases: {}, platform: undefined, supported: false, hostRead: false }
+    officialComputerUseCache.set(context, entry)
+  }
+  return entry
+}
+
+function isOfficialProvider(moduleName: string): boolean {
+  return Object.values(PLATFORMS).some(({ provider }) => provider === moduleName)
+}
+
+/**
+ * The official bundle as the official Plugins panel last listed it, with the fiber phases its rows carry.
+ * @param context - the client context.
+ * @returns undefined while the panel has not listed it.
+ */
+function listedOfficial(context: Context): { bundle: BundleInfo; phases: ProviderPhases } | undefined {
+  const bundle = readOfficialBundles(context)?.find(item => item.name === OFFICIAL_BUNDLE)
+  if (bundle === undefined) return undefined
+  const phases: Record<string, string> = {}
+  for (const row of bundle.rows as readonly { moduleName: string; phase?: unknown }[]) {
+    if (isOfficialProvider(row.moduleName) && typeof row.phase === 'string') phases[row.moduleName] = row.phase
+  }
+  return { bundle, phases }
+}
+
 /**
  * Read the official bundle for the Computer Use (Next) page and render its row.
  * @param options - the page's context, copy, reload counter and notice callbacks.
@@ -76,12 +123,19 @@ export interface OfficialComputerUseView {
  * names a platform the bundle has a provider for.
  */
 export function useOfficialComputerUse({ context, t, page, revision, onError, onNotice, onChanged }: OfficialComputerUseOptions): OfficialComputerUseView | undefined {
-  const [official, setOfficial] = useState<BundleInfo | undefined>(undefined)
-  const [providers, setProviders] = useState<readonly PluginInfo[]>([])
-  const [platform, setPlatform] = useState<OfficialPlatform | undefined>(undefined)
-  const [supported, setSupported] = useState(false)
+  const cache = officialComputerUseCacheOf(context)
+  // Until the page's own reads answer, it shows what the client last read, else what the official Plugins panel listed.
+  const [seed] = useState(() => cache.official === undefined ? listedOfficial(context) : undefined)
+  const [official, setOfficial] = useState<BundleInfo | undefined>(() => cache.official ?? seed?.bundle)
+  const [phases, setPhases] = useState<ProviderPhases>(() => seed?.phases ?? cache.phases)
+  const [platform, setPlatform] = useState<OfficialPlatform | undefined>(() => cache.platform)
+  const [supported, setSupported] = useState(() => cache.supported)
   const [busy, setBusy] = useState(false)
   const [installing, setInstalling] = useState(false)
+  const remember = (next: BundleInfo): void => {
+    cache.official = next
+    setOfficial(next)
+  }
   useEffect(() => {
     if (!page) return
     let disposed = false
@@ -89,30 +143,37 @@ export function useOfficialComputerUse({ context, t, page, revision, onError, on
       if (disposed) return
       if (!bundles.ok) throw new Error(bundles.error.message)
       if (!plugins.ok) throw new Error(plugins.error.message)
-      setOfficial(bundles.value.find(bundle => bundle.name === OFFICIAL_BUNDLE))
-      setProviders(plugins.value.filter(item => Object.values(PLATFORMS).some(({ provider }) => item.moduleName === provider)))
+      cache.official = bundles.value.find(bundle => bundle.name === OFFICIAL_BUNDLE)
+      cache.phases = Object.fromEntries(plugins.value.flatMap(item => isOfficialProvider(item.moduleName) && typeof item.fiberPhase === 'string'
+        ? [[item.moduleName, item.fiberPhase]] : []))
+      setOfficial(cache.official)
+      setPhases(cache.phases)
     }).catch(failure => { if (!disposed) onError(String(failure)) })
     return () => { disposed = true }
-  }, [context, page, revision])
+  }, [cache, context, page, revision])
+  // The page asks on every reload; the card and the header actions ask once, which a page that opens first can start from.
   useEffect(() => {
-    if (!page || typeof fetch !== 'function') return
+    if ((!page && cache.hostRead) || typeof fetch !== 'function') return
     let disposed = false
     void fetch(COMPUTER_USE_SETTINGS_ROUTE, { method: 'GET' })
       .then(async response => {
         if (!response.ok) return
         const payload = await response.json() as { officialSupported?: unknown; officialPlatform?: unknown } | null
         if (disposed) return
-        setSupported(payload?.officialSupported === true)
-        setPlatform(payload?.officialPlatform === 'macos' || payload?.officialPlatform === 'windows' ? payload.officialPlatform : undefined)
+        cache.supported = payload?.officialSupported === true
+        cache.platform = payload?.officialPlatform === 'macos' || payload?.officialPlatform === 'windows' ? payload.officialPlatform : undefined
+        cache.hostRead = true
+        setSupported(cache.supported)
+        setPlatform(cache.platform)
       })
       .catch(() => {
         // Keep the switch locked while the Host route is unreachable, as in a mock environment.
       })
     return () => { disposed = true }
-  }, [page, revision])
+  }, [cache, page, revision])
   if (!page || official === undefined || platform === undefined) return undefined
-  const { provider: providerName, title } = PLATFORMS[platform]
-  const provider = providers.find(item => item.moduleName === providerName)
+  const { provider, title } = PLATFORMS[platform]
+  const phase = phases[provider]
   // The release offers the bundle from its catalog. A Profile that has not installed it lists it as missing, even when an
   // earlier Beta that shipped the bundle left it selected.
   const missing = official.availability === 'missing'
@@ -135,7 +196,7 @@ export function useOfficialComputerUse({ context, t, page, revision, onError, on
       }
       if (change.application === 'restart-required') onNotice(t('已安装，请重启后台服务以应用。', 'Installed. Restart the background service to apply.'))
       if (change.application === 'overridden') onNotice(t('已安装，但当前配置覆盖了此开关。', 'Installed, but another configuration overrides this switch.'))
-      setOfficial({ ...official, availability: 'profile', installed: true, enabled: true })
+      remember({ ...official, availability: 'profile', installed: true, enabled: true })
     } finally { setInstalling(false) }
   }
   const change = async (enabled: boolean): Promise<void> => {
@@ -149,14 +210,14 @@ export function useOfficialComputerUse({ context, t, page, revision, onError, on
       if (change.application === 'failed' || change.application === 'cancelled') throw new Error(change.error?.diagnostic ?? t('无法更改插件状态。', 'Could not change the plugin state.'))
       if (change.application === 'restart-required') onNotice(t('已保存，请重启后台服务以应用。', 'Saved. Restart the background service to apply.'))
       if (change.application === 'overridden') onNotice(t('已保存，但当前配置覆盖了此开关。', 'Saved, but another configuration overrides this switch.'))
-      setOfficial({ ...official, enabled })
+      remember({ ...official, enabled })
     } catch (failure) { onError(failure instanceof Error ? failure.message : String(failure)) }
     finally { setBusy(false); onChanged() }
   }
   // The Host offers the official Computer Use where its helper can start: macOS 14 and later, and Windows packages that carry it.
-  const active = supported && !missing && official.enabled && provider?.fiberPhase === 'active'
+  const active = supported && !missing && official.enabled && phase === 'active'
   return {
-    row: <OfficialComputerUseRow t={t} platform={platform} title={title} official={official} provider={provider} available={supported} installing={installing}
+    row: <OfficialComputerUseRow t={t} platform={platform} title={title} official={official} phase={phase} available={supported} installing={installing}
       disabled={busy || official.readOnlyReason !== undefined} onChange={enabled => { void change(enabled) }}
       onOpen={() => { context.get('pluginNavigation')?.openBundle(OFFICIAL_BUNDLE) }} />,
     componentCount: commandActive => {
@@ -172,15 +233,15 @@ export function useOfficialComputerUse({ context, t, page, revision, onError, on
 function platformCopy(t: (chinese: string, english: string) => string, platform: OfficialPlatform): { description: string; unavailable: string; reason: string } {
   return platform === 'windows' ? {
     description: t(
-      '官方 Computer Use 的 Windows 实验版。开启后，所有会话改用它，不再加载 Computer Use（Next）。它通过系统鼠标操作，目标窗口需要在前台，也不能自行打开应用。',
-      'The experimental Windows version of the official Computer Use. When on, every session uses it instead of Computer Use (Next). It moves the system pointer, needs the target window in the foreground, and cannot open apps itself.',
+      '官方 Computer Use 的 Windows 实验版。开启后所有会话都改用它，不再加载 Computer Use（Next）。访问每个应用前会先请你授权；点击、滚动和拖拽会移动系统鼠标，部分输入需要目标窗口在前台。',
+      'The experimental Windows version of the official Computer Use. When on, every session uses it instead of Computer Use (Next). It asks for your approval before it accesses each app; clicks, scrolls and drags move the system pointer, and some input needs the target window in the foreground.',
     ),
     unavailable: t('当前安装包不支持', 'Not in this build'),
     reason: t('当前安装包没有带 Windows Computer Use 的辅助程序', 'This build does not include the Windows Computer Use helper'),
   } : {
     description: t(
-      '官方 Computer Use，需要 macOS 14 及以上。开启后，所有会话改用它，不再加载 Computer Use（Next）；它的权限在插件详情中设置。',
-      'The official Computer Use, for macOS 14 and later. When on, every session uses it instead of Computer Use (Next); set its permissions in the plugin details.',
+      '官方 Computer Use，需要 macOS 14 及以上。开启后所有会话都改用它，不再加载 Computer Use（Next）。访问每个应用前会先请你授权，系统权限在插件详情中设置。',
+      'The official Computer Use, for macOS 14 and later. When on, every session uses it instead of Computer Use (Next). It asks for your approval before it accesses each app; set its system permissions in the plugin details.',
     ),
     unavailable: t('当前系统不支持', 'Not supported on this system'),
     reason: t('macOS Computer Use 需要 macOS 14 及以上', 'macOS Computer Use requires macOS 14 or later'),
@@ -194,18 +255,18 @@ function platformCopy(t: (chinese: string, english: string) => string, platform:
  * @param props.platform - the platform whose provider the bundle loads.
  * @param props.title - the row's title on that platform.
  * @param props.official - the bundle as the plugin manager lists it.
- * @param props.provider - the bundle's provider row for that platform, once the bundle has loaded.
+ * @param props.phase - the fiber phase of the bundle's provider for that platform, once the bundle has loaded it.
  * @param props.available - whether this installation can run the official Computer Use.
  * @param props.installing - whether switching it on is downloading and installing the bundle.
  * @param props.disabled - whether a write is in flight or the profile locks the bundle.
  * @param props.onOpen - open the bundle's page in the Plugins panel.
  */
-function OfficialComputerUseRow({ t, platform, title, official, provider, available, installing, disabled, onChange, onOpen }: {
+function OfficialComputerUseRow({ t, platform, title, official, phase, available, installing, disabled, onChange, onOpen }: {
   t: (chinese: string, english: string) => string
   platform: OfficialPlatform
   title: string
   official: BundleInfo
-  provider: PluginInfo | undefined
+  phase: string | undefined
   available: boolean
   installing: boolean
   disabled: boolean
@@ -215,8 +276,8 @@ function OfficialComputerUseRow({ t, platform, title, official, provider, availa
   const copy = platformCopy(t, platform)
   const missing = official.availability === 'missing'
   const enabled = available && !missing && official.enabled
-  const active = enabled && provider?.fiberPhase === 'active'
-  const failed = enabled && !active && (official.error !== undefined || provider?.fiberPhase === 'failed')
+  const active = enabled && phase === 'active'
+  const failed = enabled && !active && (official.error !== undefined || phase === 'failed')
   const state = !available ? copy.unavailable
     : installing ? t('正在下载并安装', 'Downloading and installing') : missing ? t('未安装', 'Not installed')
       : !enabled ? t('已关闭', 'Off') : active ? t('运行中', 'Running') : failed ? t('加载失败', 'Failed to load') : t('等待加载', 'Waiting to load')
