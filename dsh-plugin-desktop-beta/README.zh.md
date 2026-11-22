@@ -250,7 +250,7 @@ corepack yarn build
 
 ### Windows x64 本地安装包
 
-请使用原生 Windows x64 电脑，并安装 Git 与 x64 Node `22.23.2`（与 CI 使用的版本相同）。打包命令接受官方发行版仍包含所需 Corepack 命令的 Node `22.19+` 与 Node `24.x`。在一个最新的 `v2` checkout 中打开 PowerShell，然后执行：
+请使用原生 Windows x64 电脑，并安装 Git 与 x64 Node `24.22.3`（与 CI 使用的版本相同）。任何 `^24.22.3` 的 Node 版本都可以，其官方发行版包含所需的 Corepack 命令。在一个最新的 `v2` checkout 中打开 PowerShell，然后执行：
 
 ```powershell
 git submodule update --init --recursive
