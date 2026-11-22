@@ -10,7 +10,9 @@ export const OFFICE_SKILL_UNPACKED: RegExp | undefined = /^node_modules\/@deepse
 export const LEGACY_AGENT_TEAM_BUNDLE: string | undefined = undefined
 
 export { cuaNativeExclusion, prepareCuaNative } from './upstream-family/cua-native.ts'
-export const OFFICIAL_CUA_UNPACKED: RegExp | undefined = /^node_modules\/@deepseek-ai\/dsh-cua-macos\//u
+export { cuaWindowsHelperRoot, cuaWindowsNativeExclusion, prepareCuaWindowsNative, verifyCuaWindowsHelper } from './upstream-family/cua-windows-native.ts'
+// The macOS provider starts the application below its own package, the Windows provider its helper beside the archive.
+export const OFFICIAL_CUA_UNPACKED: RegExp | undefined = /^node_modules\/@deepseek-ai\/dsh-cua-(?:macos\/|windows\/native\/bin\/)/u
 
 // dsh 0.2.3 syncs the account notification plugin's volatile polling interval into its client boot graph row.
 export const ACCOUNT_NOTIFICATIONS_INTERVAL_MARKER = '"notificationPollIntervalMs":'

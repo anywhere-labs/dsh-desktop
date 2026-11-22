@@ -1,14 +1,18 @@
 /**
- * The official Computer Use bundle of dsh 0.2.2 (`@deepseek-ai/dsh-cua-bundle`, macOS 14 and later) beside Computer Use
- * (Next): the Agents it serves, whether this system can run it, and the per-Agent `/computer-use` that leaves those
- * Agents. src/host/computer-use-command.ts consumes it as `officialComputerUse` from src/upstream-family.ts.
+ * The official Computer Use bundle (`@deepseek-ai/dsh-cua-bundle`; macOS 14 and later, and from dsh 0.2.3 Windows) beside
+ * Computer Use (Next): the Agents it serves, whether this installation can run it, and the per-Agent `/computer-use` that
+ * leaves those Agents. src/host/computer-use-command.ts consumes it as `officialComputerUse` from src/upstream-family.ts.
  */
+import { existsSync } from 'node:fs'
+import { createRequire } from 'node:module'
 import { release } from 'node:os'
+import { dirname } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandDefinition } from '@deepseek-ai/dsh-commands'
 import type {} from '@deepseek-ai/dsh-computer-use'
 import type {} from '@deepseek-ai/dsh-tools'
+import { OFFICIAL_CUA_WINDOWS_PROVIDER_PACKAGE, officialCuaWindowsHelper } from './official-cua.ts'
 
 /** Name the official provider (`@deepseek-ai/dsh-cua`) takes in the computer-use registry of the official bundle. */
 export const OFFICIAL_COMPUTER_USE_PROVIDER = 'dsh-cua'
@@ -19,7 +23,8 @@ export const OFFICIAL_CUA_PROGRAM_TOOL = 'cua_run_code'
 
 /**
  * Whether the official helper cannot start on this system. It requires macOS 14 (Darwin 23), yet the provider
- * loads and registers its tool on an older macOS too; other platforms never load the official provider.
+ * loads and registers its tool on an older macOS too. The Windows provider fails to load without its helper and so
+ * registers no tool, and Linux has no official provider.
  * @param platform - Host platform.
  * @param osRelease - Kernel release as `os.release()` reports it.
  * @returns true on macOS 13 and earlier.
@@ -28,14 +33,52 @@ export function officialHelperUnsupported(platform: NodeJS.Platform = process.pl
   return platform === 'darwin' && Number.parseInt(osRelease, 10) < 23
 }
 
+/** The platforms the official bundle has a provider for, as the Computer Use (Next) page names them. */
+export type OfficialComputerUsePlatform = 'macos' | 'windows'
+
 /**
- * Whether the official Computer Use can run here at all: macOS 14 (Darwin 23) or later. The Plugins page
- * offers its switch only then.
+ * The platform whose provider the official bundle loads here.
+ * @param platform - Host platform.
+ * @returns undefined on platforms the bundle has no provider for, such as Linux.
+ */
+export function officialComputerUsePlatform(platform: NodeJS.Platform = process.platform): OfficialComputerUsePlatform | undefined {
+  return platform === 'darwin' ? 'macos' : platform === 'win32' ? 'windows' : undefined
+}
+
+/**
+ * Whether this installation carries the helper the official Windows provider starts for the Host's CPU. The release
+ * publishes the provider without one; Desktop's Windows packages publish it from the pinned upstream source.
+ * @param arch - CPU of the Host process.
+ * @param resolveProvider - Finds the provider's package directory as the official bundle resolves it.
+ * @returns false when the bundle, its Windows provider or the helper is missing.
+ */
+export function officialWindowsHelperInstalled(arch: string = process.arch, resolveProvider: () => string = installedWindowsProvider): boolean {
+  let provider: string
+  try {
+    provider = resolveProvider()
+  } catch {
+    // The runtime ships no official bundle, or no Windows provider for it: no helper either.
+    return false
+  }
+  return existsSync(officialCuaWindowsHelper(provider, arch))
+}
+
+function installedWindowsProvider(): string {
+  const bundle = createRequire(import.meta.url).resolve('@deepseek-ai/dsh-cua-bundle/package.json')
+  return dirname(createRequire(bundle).resolve(`${OFFICIAL_CUA_WINDOWS_PROVIDER_PACKAGE}/package.json`))
+}
+
+/**
+ * Whether the official Computer Use can run here at all: on macOS 14 (Darwin 23) or later, or on Windows when the
+ * installation carries the helper. The Computer Use (Next) page offers its switch only then.
  * @param platform - Host platform.
  * @param osRelease - Kernel release as `os.release()` reports it.
- * @returns true on macOS 14 and later.
+ * @param windowsHelper - Whether a Windows installation carries the helper.
+ * @returns true where the official provider can start its helper.
  */
-export function officialComputerUseSupported(platform: NodeJS.Platform = process.platform, osRelease: string = release()): boolean {
+export function officialComputerUseSupported(platform: NodeJS.Platform = process.platform, osRelease: string = release(),
+  windowsHelper: () => boolean = officialWindowsHelperInstalled): boolean {
+  if (platform === 'win32') return windowsHelper()
   return platform === 'darwin' && !officialHelperUnsupported(platform, osRelease)
 }
 
@@ -105,6 +148,9 @@ export function agentCommandRegistrar(ctx: Context): (definition: CommandDefinit
 /** The official Computer Use as src/host/computer-use-command.ts consumes it. */
 export const officialComputerUse = {
   serves: officialComputerUseServes,
-  settings: (): { officialSupported: boolean } => ({ officialSupported: officialComputerUseSupported() }),
+  settings: (): { officialSupported: boolean; officialPlatform?: OfficialComputerUsePlatform } => {
+    const platform = officialComputerUsePlatform()
+    return { officialSupported: officialComputerUseSupported(), ...platform === undefined ? {} : { officialPlatform: platform } }
+  },
   commandRegistrar: agentCommandRegistrar,
 }

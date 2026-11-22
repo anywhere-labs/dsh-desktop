@@ -30,10 +30,21 @@ const runXcrun: RunXcrun = (args) => {
  * @throws When the bundle is a dependency but its provider is not installed, as on other platforms.
  */
 export function cuaNativePackageDir(desktopRoot: string): string | undefined {
+  return officialProviderPackageDir(desktopRoot, OFFICIAL_CUA_PROVIDER_PACKAGE)
+}
+
+/**
+ * Locate one of the official bundle's platform providers as the bundle resolves it, when this Desktop package ships the bundle.
+ * @param desktopRoot - Desktop package root.
+ * @param provider - Package name of the platform provider.
+ * @returns The provider's package directory, or undefined when the package does not depend on the bundle.
+ * @throws When the bundle is a dependency but the provider is not installed, as on a platform its manifest excludes.
+ */
+export function officialProviderPackageDir(desktopRoot: string, provider: string): string | undefined {
   const manifest = JSON.parse(readFileSync(join(desktopRoot, 'package.json'), 'utf8')) as { dependencies?: Record<string, string> }
   if (manifest.dependencies?.[OFFICIAL_COMPUTER_USE_BUNDLE] === undefined) return undefined
   const bundle = createRequire(join(desktopRoot, 'package.json')).resolve(`${OFFICIAL_COMPUTER_USE_BUNDLE}/package.json`)
-  return dirname(createRequire(bundle).resolve(`${OFFICIAL_CUA_PROVIDER_PACKAGE}/package.json`))
+  return dirname(createRequire(bundle).resolve(`${provider}/package.json`))
 }
 
 /**

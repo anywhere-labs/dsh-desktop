@@ -1,4 +1,4 @@
-/** The official Computer Use row, titled macOS Computer Use, on the Computer Use (Next) page, for the dsh 0.2.2 bundle. */
+/** The official Computer Use row on the Computer Use (Next) page, titled after the platform whose provider the bundle loads. */
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Context } from '@deepseek-ai/cordis'
 
@@ -31,10 +31,15 @@ const nodes = (value: unknown): Node[] => Array.isArray(value) ? value.flatMap(n
 const component = (tree: Node, name: string): Node | undefined => nodes(tree).find(node => typeof node.type === 'function' && node.type.name === name)
 const render = (node: Node): Node => (node.type as (props: Node['props']) => Node)(node.props)
 
-/** Mount the Computer Use page against a Host that reports `officialSupported` and lists `bundle`. */
-async function mountOfficialComputerUse(officialSupported: boolean, bundle: Record<string, unknown>) {
+/** What the Host route reports about the official Computer Use. */
+interface OfficialHost { officialSupported: boolean; officialPlatform?: 'macos' | 'windows' }
+const MACOS: OfficialHost = { officialSupported: true, officialPlatform: 'macos' }
+const WINDOWS: OfficialHost = { officialSupported: true, officialPlatform: 'windows' }
+
+/** Mount the Computer Use page against a Host that reports `host` and lists `bundle`. */
+async function mountOfficialComputerUse(host: OfficialHost, bundle: Record<string, unknown>) {
   vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
-  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ commandMode: true, officialSupported }) })))
+  vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ commandMode: true, ...host }) })))
   const cuaRow = {
     entryId: 'include:cua',
     moduleName: '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native',
@@ -84,9 +89,10 @@ async function mountOfficialComputerUse(officialSupported: boolean, bundle: Reco
       count: nodes(tree).find(node => node.props.className === 'dshNextComponentSectionCount')!.props.children as string,
       row: body,
       title: body === undefined ? undefined : nodes(body).find(node => node.props.className === 'dshNextComponentRowId')!.props.children as string,
-      toggle: body === undefined ? undefined : nodes(body).find(node => node.type === 'input' && node.props.label === '启用 macOS Computer Use'),
+      toggle: body === undefined ? undefined : nodes(body).find(node => node.type === 'input' && String(node.props.label).startsWith('启用 ')),
       open: body === undefined ? undefined : nodes(body).find(node => node.type === 'button' && node.props.className === 'dshNextComponentRowOpen'),
       state: body === undefined ? undefined : nodes(body).find(node => node.props.className === 'dshNextComponentRowState')!.props.children as unknown[],
+      description: body === undefined ? undefined : nodes(body).find(node => node.props.className === 'dshNextComponentRowModule' && typeof node.props.children === 'string')!.props.children as string,
     }
   }
   return { pluginManager, plugins, navigation, installed, settle, view }
@@ -106,12 +112,13 @@ const OFFERED_BUNDLE_ROW = {
 }
 
 it('switches the official Computer Use bundle on the Computer Use (Next) page on macOS 14 and later', async () => {
-  const app = await mountOfficialComputerUse(true, { ...OFFICIAL_BUNDLE_ROW })
+  const app = await mountOfficialComputerUse(MACOS, { ...OFFICIAL_BUNDLE_ROW })
   let view = app.view()
   expect(view.row!.props['data-plugin-row']).toBe('official-computer-use')
   expect(view.title).toBe('macOS Computer Use')
   expect(view.row!.props['data-state']).toBe('off')
-  expect(nodes(view.row).some(node => typeof node.props.children === 'string' && node.props.children.includes('仅支持 macOS 14 及以上的 PTC 模式'))).toBe(true)
+  expect(view.description).toBe('官方 Computer Use，需要 macOS 14 及以上。开启后，所有会话改用它，不再加载 Computer Use（Next）；它的权限在插件详情中设置。')
+  expect(view.toggle!.props.label).toBe('启用 macOS Computer Use')
   expect(view.toggle!.props.checked).toBe(false)
   expect(view.toggle!.props.disabled).toBe(false)
   expect(view.toggle!.props.title).toBeUndefined()
@@ -151,30 +158,62 @@ it('switches the official Computer Use bundle on the Computer Use (Next) page on
   expect(app.navigation.openBundle).toHaveBeenCalledOnce()
 })
 
-it('greys out the official Computer Use switch, off and locked, where it cannot run', async () => {
-  // Windows lists the offered bundle as unsupported; a Profile that already selected it still shows the switch off.
-  const app = await mountOfficialComputerUse(false, { ...OFFERED_BUNDLE_ROW, enabled: true, listedByDefault: false, error: { code: 'unsupported-platform' } })
+it('switches the Windows Computer Use where the package carries its helper', async () => {
+  const app = await mountOfficialComputerUse(WINDOWS, { ...OFFICIAL_BUNDLE_ROW })
+  let view = app.view()
+  expect(view.title).toBe('Windows Computer Use')
+  expect(view.toggle!.props.label).toBe('启用 Windows Computer Use')
+  expect(view.description).toBe('官方 Computer Use 的 Windows 实验版。开启后，所有会话改用它，不再加载 Computer Use（Next）。它通过系统鼠标操作，目标窗口需要在前台，也不能自行打开应用。')
+  expect(view.toggle!.props.disabled).toBe(false)
+  view.toggle!.props.onChange(true)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(app.pluginManager.setBundleEnabled).toHaveBeenCalledWith('@deepseek-ai/dsh-cua-bundle', true)
+  // Only the Windows provider tells whether it runs here.
+  app.plugins.push({ entryId: 'include:cua-macos', moduleName: '@deepseek-ai/dsh-cua-macos', enabled: true, fiberPhase: 'active' })
+  await app.settle()
+  view = app.view()
+  expect(view.state).toContain('等待加载')
+  app.plugins.push({ entryId: 'include:cua-windows', moduleName: '@deepseek-ai/dsh-cua-windows', enabled: true, fiberPhase: 'active' })
+  await app.settle()
+  view = app.view()
+  expect(view.state).toContain('运行中')
+  expect(view.open!.props['aria-label']).toBe('查看 Windows Computer Use 的插件详情')
+  expect(view.count).toBe('共 2 个 · 2 运行中')
+})
+
+it('greys out the official Computer Use switch, off and locked, in a Windows build without its helper', async () => {
+  // A Profile that already selected the bundle still shows the switch off.
+  const app = await mountOfficialComputerUse({ officialSupported: false, officialPlatform: 'windows' }, { ...OFFICIAL_BUNDLE_ROW, enabled: true })
   const view = app.view()
+  expect(view.title).toBe('Windows Computer Use')
   expect(view.row!.props['data-state']).toBe('off')
   expect(view.toggle!.props.checked).toBe(false)
   expect(view.toggle!.props.disabled).toBe(true)
-  expect(view.toggle!.props.title).toBe('macOS Computer Use 仅支持 macOS 14 及以上')
-  expect(view.state).toContain('当前系统不支持')
+  expect(view.toggle!.props.title).toBe('当前安装包没有带 Windows Computer Use 的辅助程序')
+  expect(view.state).toContain('当前安装包不支持')
   expect(view.count).toBe('共 2 个 · 1 运行中 · 1 已停用')
   expect(view.open).toBeUndefined()
   expect(view.row!.props['data-opens']).toBeUndefined()
 })
 
 it('keeps the official Computer Use switch locked before macOS 14, where the plugin manager still lists the bundle', async () => {
-  const app = await mountOfficialComputerUse(false, { ...OFFICIAL_BUNDLE_ROW })
+  const app = await mountOfficialComputerUse({ officialSupported: false, officialPlatform: 'macos' }, { ...OFFICIAL_BUNDLE_ROW })
   const view = app.view()
   expect(view.toggle!.props.checked).toBe(false)
   expect(view.toggle!.props.disabled).toBe(true)
+  expect(view.toggle!.props.title).toBe('macOS Computer Use 需要 macOS 14 及以上')
   expect(view.state).toContain('当前系统不支持')
 })
 
+it('leaves the official Computer Use out where the bundle has no provider, as on Linux', async () => {
+  const app = await mountOfficialComputerUse({ officialSupported: false }, { ...OFFERED_BUNDLE_ROW, error: { code: 'unsupported-platform' } })
+  const view = app.view()
+  expect(view.row).toBeUndefined()
+  expect(view.count).toBe('共 1 个 · 1 运行中')
+})
+
 it('installs the official Computer Use when switched on while the current Profile lacks it', async () => {
-  const app = await mountOfficialComputerUse(true, { ...OFFERED_BUNDLE_ROW })
+  const app = await mountOfficialComputerUse(MACOS, { ...OFFERED_BUNDLE_ROW })
   let view = app.view()
   expect(view.title).toBe('macOS Computer Use')
   expect(view.state).toContain('未安装')
@@ -182,7 +221,6 @@ it('installs the official Computer Use when switched on while the current Profil
   expect(view.toggle!.props.disabled).toBe(false)
   expect(view.open).toBeUndefined()
   expect(view.count).toBe('共 2 个 · 1 运行中 · 1 已停用')
-  expect(nodes(view.row).some(node => typeof node.props.children === 'string' && node.props.children.includes('首次开启时会下载并安装官方插件'))).toBe(true)
 
   view.toggle!.props.onChange(true)
   await new Promise(resolve => setTimeout(resolve, 0))

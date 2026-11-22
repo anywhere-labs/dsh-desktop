@@ -144,7 +144,7 @@ dsh plugin update
 
 **OAR 子智能体。** **插件**页在「Beta 插件」中首先列出 OAR 子智能体。它的开关默认关闭，打开后启用官方 `@deepseek-ai/dsh-experimental-subagent-oar` 提供方。Beta 将它作为可选组合包随安装提供，组合方式与提供方 README 的示例一致，只有 Claude Code 的权限模式不同：Codex 以 `-c sandbox_mode="workspace-write"` 启动，Claude Code 以 `--permission-mode acceptEdits --permission-prompts none` 启动，两者都能修改任务目录里的文件。其他需要确认的操作（例如大多数 shell 命令），Claude Code 一律拒绝，除非它自己的设置已预先放行（`permissions.allow`）；示例中的 `dontAsk` 会让它只能读。模型通过 `subagent_oar` 工具把一个独立文本任务交给其中之一。每个任务都使用本机已安装的 Codex 或 Claude Code 命令行，以及该命令行自己的登录和设置，因此请先安装并登录。这些进程在 DSH 的命令沙箱之外运行，它们自身的审批请求也不会转到 DSH 界面。点卡片标题会打开官方插件页，列出该组合包的三行。在这个页面上，每个提供方行的「配置」入口会打开它的启动选项：Claude Code 可选只读、可改文件（默认）、自动审核或完全放行；Codex 可选只读、可写工作区（默认）或不限制。保存后，官方配置编辑器把选择记录到当前 Profile 的补丁里并重启这一行，之后委派的任务按新设置启动；重新选回默认会删除这条覆盖。这一行必须在运行才能修改。该版本以普通包发布这个提供方；`patches/dsh-experimental-subagent-oar@<version>.patch` 在安装时为已安装的包加上组合包声明。
 
-**官方 Computer Use。** dsh 0.2.2 新增官方 Computer Use bundle `@deepseek-ai/dsh-cua-bundle`（仅 macOS）。官方发布版把它作为可选组合包随安装提供，Beta 同样随安装包提供；0.2.2-alpha.3 到 0.2.2-rc.1 期间则由插件管理器按需安装。其他平台不列出它。`computer-use` 注册服务条目和 provider 条目共用 `computerUse: computer-use-next` 隔离域，因此官方 bundle 可以同时挂载自己的注册服务。官方 provider 用 `cua` 工具服务 PTC 会话；从 dsh 0.2.3 起，它还用 `cua_run_code` 服务其他所有会话，在自己的 Node 运行时上执行 CUA 程序。在它服务的会话中，Computer Use（Next）不加载工具和提示词，也不提供 `/computer-use` 命令；官方 provider 不再服务该会话后（例如会话切换到其他模式，或关闭官方 bundle），命令随即恢复，无需重启。Windows 和 Linux、官方 helper 无法启动的 macOS 14 以下版本，以及没有加载官方 provider 的会话，继续使用 Computer Use（Next），它支持 macOS、Windows 和 Linux。Computer Use（Next）的插件页提供 macOS Computer Use 一行，带有官方 bundle 的开关；当前 Profile 还没有安装时，打开开关会先安装。该开关仅在 macOS 14 及以上可用；其他系统上保持关闭且不可操作。开启后，点击这一行可打开它在**插件**页中的详情页。相关模块和测试位于 `src/upstream-family/` 和 `tests/upstream-family/`。
+**官方 Computer Use。** dsh 0.2.2 新增 macOS 上的官方 Computer Use bundle `@deepseek-ai/dsh-cua-bundle`，dsh 0.2.3 又为它加入实验性的 Windows provider `@deepseek-ai/dsh-cua-windows`。官方发布版把它作为可选组合包随安装提供，Beta 同样随安装包提供；0.2.2-alpha.3 到 0.2.2-rc.1 期间则由插件管理器按需安装。Linux 没有它的 provider。`computer-use` 注册服务条目和 provider 条目共用 `computerUse: computer-use-next` 隔离域，因此官方 bundle 可以同时挂载自己的注册服务。官方 provider 用 `cua` 工具服务 PTC 会话；从 dsh 0.2.3 起，它还用 `cua_run_code` 服务其他所有会话，在自己的 Node 运行时上执行 CUA 程序。在它服务的会话中，Computer Use（Next）不加载工具和提示词，也不提供 `/computer-use` 命令；官方 provider 不再服务该会话后（例如会话切换到其他模式，或关闭官方 bundle），命令随即恢复，无需重启。Linux、官方 helper 无法启动的 macOS 14 以下版本、没有带 helper 的 Windows 安装，以及没有加载官方 provider 的会话，继续使用 Computer Use（Next），它支持 macOS、Windows 和 Linux。官方发布的 Windows provider 不带它要启动的 helper，因此 Windows 安装包从固定版本的上游 checkout 发布这个 helper（见下文「Windows x64 本地安装包」）。Computer Use（Next）的插件页提供官方 bundle 的开关行，按平台显示为 macOS Computer Use 或 Windows Computer Use；当前 Profile 还没有安装时，打开开关会先安装。该开关在 macOS 14 及以上和带有 helper 的 Windows 安装中可用；其他情况下保持关闭且不可操作，Linux 不显示这一行。开启后，点击这一行可打开它在**插件**页中的详情页。相关模块和测试位于 `src/upstream-family/` 和 `tests/upstream-family/`。
 
 **更新后的按需插件。** 官方 Codex、Claude Code 子智能体和「Beta 插件」中的官方连接器按需安装到 Profile，版本锁定为安装它们时的 DSH 版本。它们依赖的 DSH 包由 pnpm 放在 Profile 的 `node_modules` 顶层，运行时解析会优先使用这些副本，而不是安装包自带的。更新到其他 DSH 版本后，核心插件会因此加载旧副本，子智能体工具随之消失，或者 Host 无法启动；这些插件本身也不再匹配新版本。因此，Beta 在 Host 解析 Profile 之前，用内置 pnpm 离线移除为其他版本安装的按需插件，效果与在**插件**页移除相同，并在日志中写明移除了哪些。之后**插件**页把它们显示为未安装，打开开关即可安装当前版本。移除失败只记录日志，Host 照常启动，下次启动时重试。
 
@@ -252,7 +252,7 @@ corepack yarn build
 
 ### Windows x64 本地安装包
 
-请使用原生 Windows x64 电脑，并安装 Git 与 x64 Node `24.22.3`（与 CI 使用的版本相同）。任何 `^24.22.3` 的 Node 版本都可以，其官方发行版包含所需的 Corepack 命令。在一个最新的 `v2` checkout 中打开 PowerShell，然后执行：
+请使用原生 Windows x64 电脑，并安装 Git、x64 Node `24.22.3`（与 CI 使用的版本相同）和 .NET 10 SDK。任何 `^24.22.3` 的 Node 版本都可以，其官方发行版包含所需的 Corepack 命令。在一个最新的 `v2` checkout 中打开 PowerShell，然后执行：
 
 ```powershell
 git submodule update --init --recursive
@@ -261,6 +261,8 @@ corepack.cmd yarn dist:win
 ```
 
 该流程不要求 Python 或 Visual Studio C++ Build Tools。Windows 命令会直接使用 `node-pty` 内置的 x64 Node-API 二进制，而不会让 Electron Builder 从源码重新编译；如果安装包 staging tree 缺少这些二进制，packaged-runtime gate 会直接拒绝产物。
+
+官方 Computer Use bundle 的 Windows provider 发布时不带 helper，这个 helper 由 .NET 10 SDK 发布（需要 `dotnet` 在 `PATH` 中）。每次构建 Windows 安装包时，先检查固定版本的上游 checkout 中的 `@deepseek-ai/dsh-cua-windows` 与安装包安装的版本一致，再在它的 `native/` 源码副本上运行 provider 自己的 `dotnet publish` 参数（锁定还原），把自包含的产物保存在 `.desktop-build/cua-windows/<cpu>/`，源码不变时直接复用，然后复制到 provider 的 `native/bin/win-<cpu>/`，该目录解包在归档旁。缺少 SDK 时打包失败。helper 会让安装后的应用增加约 200 MB。`afterPack` 钩子要求安装包只带本 CPU 的 helper 及其运行时文件；因为 Electron 不加载这些文件，它的库中允许出现与架构无关的 IL；最后启动一次 helper。开发启动时，有 SDK 才构建 helper，没有就不带 helper 启动。
 
 `dist:win` 会拒绝非 Windows 或非 x64 宿主，先执行一组 Windows 可运行的 gate，其中包括 build、全部 TypeScript compiler face、打包与原生 shell 聚焦测试，以及 runtime-closure verifier；随后再构建 NSIS 安装向导，并校验生成的两个 PE 文件。完整跨平台 suite 仍由 CI 持有，因为其中部分 POSIX 执行测试不是 Windows 程序。安装向导支持当前用户安装或提升权限后的所有用户安装，可更改安装目录，会创建开始菜单与桌面快捷方式，并且卸载应用时保留 DSH 用户数据。版本 `2.0.5-beta.2` 会输出到 `dsh-plugin-desktop-beta\dist\DSH-Desktop-Beta-2.0.5-beta.2-x64-Setup.exe`；用于 smoke 测试的未封装程序仍位于 `dsh-plugin-desktop-beta\dist\win-unpacked\DSH Desktop Beta.exe`。
 

@@ -40,7 +40,7 @@ test('real runtime and CI digests follow source, dependency and target-lock chan
   const snapshot = (cwd = root) => JSON.parse(execFileSync(process.execPath, ['--input-type=module', '-e', probe], { cwd, encoding: 'utf8' }))
   try {
     for (const path of [...sources, ...shared, ...owned, ...unrelated, upstream, supplement, family,
-      `${workspace}/scripts/upstream-family/cua-native.ts`, `${workspace}/src/upstream-family/official-cua.ts`,
+      `${workspace}/scripts/upstream-family/cua-native.ts`, `${workspace}/scripts/upstream-family/cua-windows-native.ts`, `${workspace}/src/upstream-family/official-cua.ts`,
       `${workspace}/src/host/unpacked-package.ts`, `${workspace}/src/host/office-engine.ts`, 'dsh-plugin-desktop/package.json',
       'dsh-plugin-desktop/scripts/mac-universal.ts', 'dsh-plugin-desktop/scripts/windows-architecture.ts']) {
       mkdirSync(dirname(join(root, path)), { recursive: true })

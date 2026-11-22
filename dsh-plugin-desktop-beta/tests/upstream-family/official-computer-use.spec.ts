@@ -1,5 +1,5 @@
 /** Computer Use (Next) beside the official Computer Use bundle of dsh 0.2.3. */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -30,9 +30,12 @@ import {
   OFFICIAL_COMPUTER_USE_PROVIDER,
   OFFICIAL_CUA_PROGRAM_TOOL,
   OFFICIAL_CUA_TOOL,
+  officialComputerUsePlatform,
   officialComputerUseSupported,
   officialHelperUnsupported,
+  officialWindowsHelperInstalled,
 } from '../../src/upstream-family/official-computer-use.ts'
+import { officialCuaWindowsHelper } from '../../src/upstream-family/official-cua.ts'
 import { defineContentToolFixture, executeToolFixture, installToolExecution } from '../upstream-family.ts'
 
 const native = vi.hoisted(() => ({
@@ -290,10 +293,32 @@ it('keeps Computer Use (Next) where the official helper cannot start, before mac
   expect(officialHelperUnsupported('win32', '10.0.26100')).toBe(false)
 })
 
-it('offers the official Computer Use switch only on macOS 14 and later', () => {
+it('offers the official Computer Use switch on macOS 14 and later and in Windows installations that carry its helper', () => {
   expect(officialComputerUseSupported('darwin', '22.6.0')).toBe(false)
   expect(officialComputerUseSupported('darwin', '23.0.0')).toBe(true)
   expect(officialComputerUseSupported('darwin', '25.1.0')).toBe(true)
-  expect(officialComputerUseSupported('linux', '6.8.0')).toBe(false)
-  expect(officialComputerUseSupported('win32', '10.0.26100')).toBe(false)
+  expect(officialComputerUseSupported('linux', '6.8.0', () => true)).toBe(false)
+  expect(officialComputerUseSupported('win32', '10.0.26100', () => true)).toBe(true)
+  expect(officialComputerUseSupported('win32', '10.0.26100', () => false)).toBe(false)
+  expect(officialComputerUsePlatform('darwin')).toBe('macos')
+  expect(officialComputerUsePlatform('win32')).toBe('windows')
+  expect(officialComputerUsePlatform('linux')).toBeUndefined()
+})
+
+it('finds the Windows helper beside the archive the provider runs from', () => {
+  expect(officialCuaWindowsHelper('/opt/DSH/resources/app.asar/node_modules/@deepseek-ai/dsh-cua-windows', 'arm64'))
+    .toBe('/opt/DSH/resources/app.asar.unpacked/node_modules/@deepseek-ai/dsh-cua-windows/native/bin/win-arm64/dsh-cua-windows.exe')
+  expect(officialCuaWindowsHelper('C:\\DSH\\resources\\app.asar\\node_modules\\@deepseek-ai\\dsh-cua-windows', 'x64'))
+    .toContain('app.asar.unpacked')
+  const root = mkdtempSync(join(tmpdir(), 'official-cua-windows-'))
+  try {
+    const provider = join(root, 'resources', 'app.asar', 'node_modules', '@deepseek-ai', 'dsh-cua-windows')
+    expect(officialWindowsHelperInstalled('x64', () => provider)).toBe(false)
+    const helper = officialCuaWindowsHelper(provider, 'x64')
+    mkdirSync(join(helper, '..'), { recursive: true })
+    writeFileSync(helper, 'helper')
+    expect(officialWindowsHelperInstalled('x64', () => provider)).toBe(true)
+    expect(officialWindowsHelperInstalled('arm64', () => provider)).toBe(false)
+    expect(officialWindowsHelperInstalled('x64', () => { throw new Error('Cannot find module') })).toBe(false)
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })

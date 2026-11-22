@@ -169,8 +169,8 @@ export function ComputerUseSettings({ context, zh, mode = 'overview' }: { contex
                 <span className="dshNextComponentRowId">{commandSwitchLabel}</span>
                 <span className="dshNextComponentRowModule">
                   {t(
-                    '默认开启：普通会话不常驻加载 Computer Use（Next）工具与系统提示词，避免占用上下文；需要时可在会话中通过 /computer-use 命令手动加载（/computer-use off 关闭）。若关闭此项，则恢复在所有会话中常驻加载。',
-                    'Enabled by default: Computer Use (Next) tools and guidance are not loaded into sessions by default to save context; run /computer-use in a session to load them on demand (/computer-use off to unload). Turn off to keep them resident in all sessions.',
+                    '默认开启：普通会话不常驻加载 Computer Use（Next）工具与系统提示词，避免占用上下文；需要时可在会话中通过 /computer-use 命令手动加载（/computer-use off 关闭）。若关闭此项，则恢复在所有会话中常驻加载。官方 Computer Use 运行时，会话改由它提供，不再出现这个命令。',
+                    'Enabled by default: Computer Use (Next) tools and guidance are not loaded into sessions by default to save context; run /computer-use in a session to load them on demand (/computer-use off to unload). Turn off to keep them resident in all sessions. While the official Computer Use runs, it serves the sessions and this command is not offered.',
                   )}
                 </span>
                 <code className="dshNextComponentRowModule">computer-use</code>

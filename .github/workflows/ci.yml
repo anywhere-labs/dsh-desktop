@@ -256,6 +256,19 @@ jobs:
         run: node scripts/test-platform-specs.mjs
       # Typecheck is platform-neutral and already gated by `check`.
       - run: yarn workspace ${{ env.DSH_WINDOWS_WORKSPACE }} check:win-package:platform
+      # The release publishes the official Computer Use bundle's Windows provider without its helper, so packaging publishes
+      # it from the pinned upstream sources with .NET 10 and reuses the output while those sources and the script stay unchanged.
+      - name: Restore the official Windows Computer Use helper
+        id: cua-windows-helper
+        uses: actions/cache/restore@v6
+        with:
+          path: ${{ env.DSH_WINDOWS_WORKSPACE }}/.desktop-build/cua-windows
+          key: cua-windows-helper-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('deepseek-harness/packages/experimental/cua-windows/native/Directory.Build.props', 'deepseek-harness/packages/experimental/cua-windows/native/protocol.schema.json', 'deepseek-harness/packages/experimental/cua-windows/native/entry/**', 'deepseek-harness/packages/experimental/cua-windows/native/protocol/**', format('{0}/scripts/upstream-family/cua-windows-native.ts', env.DSH_WINDOWS_WORKSPACE)) }}
+      - name: Install .NET 10 for the official Windows Computer Use helper
+        if: steps.cua-windows-helper.outputs.cache-hit != 'true'
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: '10.0.x'
       - name: Build Windows installer
         env:
           DSH_PACKAGE_CHECK_ALREADY_RAN: '1'
@@ -291,6 +304,12 @@ jobs:
             ~/AppData/Local/electron/Cache
             ~/AppData/Local/electron-builder/Cache
           key: ${{ steps.packaging-cache.outputs.cache-primary-key }}
+      - name: Save the official Windows Computer Use helper
+        if: github.event_name != 'pull_request' && steps.cua-windows-helper.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ env.DSH_WINDOWS_WORKSPACE }}/.desktop-build/cua-windows
+          key: ${{ steps.cua-windows-helper.outputs.cache-primary-key }}
 
       - name: Write release artifact checksums
         if: github.event_name == 'workflow_dispatch'

@@ -35,7 +35,7 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
     '**/node_modules/@deepseek-ai/libreoffice-kit-*/**/*', '**/node_modules/pnpm/**/*',
     '**/node_modules/@agents-anywhere/dsh-bridge-next/lib/bundled-connector/**/*', '**/node_modules/@deepseek-ai/dsh-agent-preset/**/*',
     '**/node_modules/@deepseek-ai/dsh-skill-badge/**/*', '**/node_modules/@deepseek-ai/dsh-skill-office/**/*',
-    '**/node_modules/@deepseek-ai/dsh-cua-macos/**/*']))
+    '**/node_modules/@deepseek-ai/dsh-cua-macos/**/*', '**/node_modules/@deepseek-ai/dsh-cua-windows/native/bin/**/*']))
   // The prepared tree is archived verbatim, as upstream archives its prepared dsh tree: one file set for the
   // shell files and one for the dependency tree, because electron-builder leaves out a file set's root node_modules.
   expect(next.build.files).toEqual([{ from: '.desktop-build/payload', filter: ['**/*'] },

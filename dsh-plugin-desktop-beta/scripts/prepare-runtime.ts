@@ -1,4 +1,4 @@
-import { OFFICE_SKILLS_IN_PACKAGE, prepareCuaNative } from './upstream-family.ts'
+import { OFFICE_SKILLS_IN_PACKAGE, prepareCuaNative, prepareCuaWindowsNative } from './upstream-family.ts'
 /** Prepare, execute and check the bundled interpreter payloads for every CPU one Next package carries. */
 import { createHash } from 'node:crypto'
 import { existsSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs'
@@ -7,7 +7,7 @@ import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { parsePrimaryRuntime, workspaceDependencyPaths, type PrimaryRuntimeManifest } from '@deepseek-ai/dsh-tool-workspace-dependencies'
 import { macSmokeArchitecture } from '../../dsh-plugin-desktop/scripts/mac-universal.ts'
-import { assertWindowsArchitecture, verifyWindowsNativeTree } from '../../dsh-plugin-desktop/scripts/windows-architecture.ts'
+import { assertWindowsArchitecture, verifyWindowsNativeTree, windowsArchitecture } from '../../dsh-plugin-desktop/scripts/windows-architecture.ts'
 import { machOArchitectures, preparePrimaryRuntime, primaryRuntimePayloadDigest, readPrimaryRuntimeLock, rosettaAvailable, smokePrimaryRuntime, type PrimaryRuntimeTarget } from './primary-runtime.ts'
 
 /** CPU of one bundled payload. */
@@ -305,5 +305,13 @@ if (invokedPath !== undefined && resolve(invokedPath) === fileURLToPath(import.m
       smokeNextRuntime(root, process.platform, console.log, process.arch, macCpus)
     }
     if (macCpus !== undefined) prepareCuaNative(desktopRoot, macCpus)
+    if (process.platform === 'win32') {
+      // A development launch goes on without the official Windows Computer Use helper where this machine cannot publish it.
+      try {
+        prepareCuaWindowsNative(desktopRoot, [windowsArchitecture()])
+      } catch (error) {
+        console.warn(`Starting without the official Windows Computer Use helper: ${error instanceof Error ? error.message : String(error)}`)
+      }
+    }
   }
 }

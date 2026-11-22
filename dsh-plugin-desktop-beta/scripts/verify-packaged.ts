@@ -7,6 +7,7 @@ import { expectedNextVersion, verifyPackagedNextRuntime } from './prepare-runtim
 import { DESKTOP_RUNTIME_FILE } from '../src/runtime-tree.ts'
 import { packagingStepSync } from './packaging-step.ts'
 import { verifyWindowsCodeUnpacked } from './windows-asar-unpack.ts'
+import { cuaWindowsHelperRoot, verifyCuaWindowsHelper } from './upstream-family.ts'
 
 /** Resources directories already cross-checked by afterPack in the current packaging process. */
 export const verifiedPackagedResources = new Set<string>()
@@ -54,8 +55,13 @@ export default async function afterPack(context: PackContext): Promise<void> {
   if (platform === 'win32') {
     const arch = windowsArchitecture()
     assertWindowsArchitecture(join(context.appOutDir, 'DSH Desktop Beta.exe'), arch)
-    const nativeFiles = verifyWindowsNativeTree(join(resources, 'app.asar.unpacked'), arch)
+    const unpacked = join(resources, 'app.asar.unpacked')
+    // The official Computer Use helper runs as a .NET process of its own and is checked on its own terms.
+    const helperRoot = cuaWindowsHelperRoot(unpacked)
+    const nativeFiles = verifyWindowsNativeTree(unpacked, arch, path => path === helperRoot)
     console.log(`Verified ${nativeFiles} native Windows ${arch} addons and DLLs`)
+    const helperFiles = packagingStepSync('archive:verify-cua-helper', () => verifyCuaWindowsHelper(unpacked, arch, context.packager.projectDir))
+    if (helperFiles !== undefined) console.log(`Verified and started the official Computer Use helper: ${String(helperFiles)} Windows ${arch} or architecture-neutral executables and libraries`)
   }
   const source = packagingStepSync('archive:open', () => archivedPayload(resources))
   try {
