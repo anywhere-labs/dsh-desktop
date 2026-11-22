@@ -18,7 +18,7 @@ import { registerPluginControls } from './plugin-controls.tsx'
 import { installPluginControlsStyles } from './plugin-controls-styles.ts'
 import { registerComputerUseCommandUi } from './computer-use-command-ui.tsx'
 import { installOfficialComputerUseStyles, registerDesktopSettingsIcon } from './upstream-family.ts'
-import { desktopDirectoryPicker, registerDesktopDirectoryPicker } from './directory-picker.ts'
+import { desktopDirectoryPicker, registerDesktopDirectoryPicker, shadowsHostDirectoryFlow } from './directory-picker.ts'
 import { SettingsRequests } from './settings-requests.tsx'
 import type { DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
 import { installRendererRecovery } from './renderer-recovery.ts'
@@ -47,10 +47,13 @@ export function apply(ctx: Context): void {
   if (installOfficialComputerUseStyles) ctx.effect(installOfficialComputerUseStyles, 'Official Computer Use row styles')
   registerPluginControls(ctx)
   registerComputerUseCommandUi(ctx)
-  // The Desktop window adds workspaces through the system folder dialog like upstream
-  // Desktop, whatever directory flow the Host mounted; ordinary browsers have no bridge.
+  // On macOS and Windows the Desktop window adds workspaces through the system folder dialog
+  // like upstream Desktop, whatever directory flow the Host mounted. Linux keeps the Host's
+  // flow, and ordinary browsers have no bridge.
   const directoryPicker = desktopDirectoryPicker()
-  if (directoryPicker) registerDesktopDirectoryPicker(ctx, directoryPicker)
+  if (directoryPicker && shadowsHostDirectoryFlow(document.documentElement.dataset.platform)) {
+    registerDesktopDirectoryPicker(ctx, directoryPicker)
+  }
   registerDesktopOnboarding(ctx)
   if (window.desktopNext?.state) {
     ctx.slots.inject('shell.overlay', () => ctx.slots.register({

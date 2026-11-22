@@ -4,12 +4,18 @@
  * Next hands every sampled LAN address to the Host as a trusted authority so LAN access
  * can be switched on later without a Host restart. Upstream's adaptive `directory-picker`
  * row reads that trust as "remote browsers may be present" and mounts the in-app browsing
- * panel for every browser it serves. Upstream Desktop declares no trusted hosts, so its
- * window always receives the native chooser. This occupant restores that behaviour for the
- * Desktop window alone: it shadows whichever flow the Host mounted (registered at the
+ * panel for every browser it serves. Upstream Desktop declares no trusted hosts, so on macOS
+ * and Windows its window receives the native chooser. This occupant restores that behaviour
+ * for the Desktop window alone: it shadows whichever flow the Host mounted (registered at the
  * default priority 0; the lowest live entry of a single hole renders) with a renderless
  * driver over the preload bridge, so the system folder dialog opens immediately. Ordinary
  * browsers reached through local or LAN access have no bridge and keep the Host's panel.
+ *
+ * The Desktop window on Linux keeps the Host's flow too. Electron opens the system folder
+ * dialog there through the desktop's file-chooser portal, and a missing or failing portal
+ * backend (Hyprland's own portal has no file chooser) comes back as an ordinary
+ * cancellation: shadowing would hide the working panel behind a dialog that never appears,
+ * and Add workspace would do nothing (#1719).
  *
  * The driver mirrors upstream `@deepseek-ai/dsh-client-ui-directory-picker-native` (MIT),
  * whose published Loader entry registers only at the default priority.
@@ -47,6 +53,16 @@ export function desktopDirectoryPicker(target: object = globalThis): DesktopDire
   const pick = (bridge as { pick?: unknown }).pick
   if (typeof pick !== 'function') return undefined
   return { pick: () => (pick as () => Promise<string | null>).call(bridge) }
+}
+
+/**
+ * Whether the Desktop window shadows the Host-mounted flow with the system folder dialog.
+ * @param platform - The document's platform mark (`<html data-platform>`, set by the preload).
+ * @returns False on Linux, whose system dialog depends on the desktop's portal; true on macOS,
+ * Windows and an unmarked document.
+ */
+export function shadowsHostDirectoryFlow(platform: string | undefined): boolean {
+  return platform !== 'linux'
 }
 
 /**
