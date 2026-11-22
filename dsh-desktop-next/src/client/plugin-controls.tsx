@@ -14,6 +14,7 @@ import { Choice, MARKET_OPTIONS, marketBody, marketTitle } from './DesktopSettin
 import { en as desktopEn, zh as desktopZh, type DesktopSettingsLocaleKey } from '../../../dsh-plugin-desktop/src/client/desktop-settings-locales.ts'
 import { ComputerUseSettings } from './computer-use.tsx'
 import { ComputerUsePluginArtwork } from './computer-use-command-ui.tsx'
+import { readOfficialBundles } from './official-plugin-snapshot.ts'
 import {
   BUILT_IN_MARKET_SOURCES, COMMUNITY_MARKET as COMMUNITY, configureSingleMarketToOfficial, DSH_MARKET as MARKET,
   importMarketSourcesToOfficial, marketToggleTargets, OFFICIAL_CONFIGURABLE_MARKET_SOURCES, OFFICIAL_MARKET,
@@ -582,41 +583,6 @@ function RemoteControlSettings({ context, t, row, loading, onChanged }: {
     {notice && <span role="status" className="dshDesktopSettingsHint">{notice}</span>}
     {error && <span role="alert" className="dshDesktopSettingsError">{error}</span>}
   </div>
-}
-
-function readOfficialBundles(context: Context): BundleInfo[] | undefined {
-  try {
-    const get = (context as { get?: (key: string) => unknown }).get
-    if (typeof get !== 'function') return undefined
-    const slots = get.call(context, 'slots') as {
-      readonly _core?: {
-        readonly entries?: (key: string) => readonly {
-          readonly options?: { readonly id?: string; readonly key?: string }
-          readonly inject?: () => {
-            readonly hooks?: {
-              readonly pluginManager?: {
-                readonly getSnapshot?: () => {
-                  readonly status?: string
-                  readonly packages?: readonly BundleInfo[]
-                }
-              }
-            }
-          }
-        }[]
-      }
-    } | undefined
-    const mainEntries = slots?._core?.entries?.('main')
-    const overlayEntries = slots?._core?.entries?.('shell.overlay')
-    const entry = mainEntries?.find(item => item.options?.key === 'plugins')
-      ?? overlayEntries?.find(item => item.options?.id === 'plugin-manager.refresh-toast')
-    const snapshot = entry?.inject?.()?.hooks?.pluginManager?.getSnapshot?.()
-    if ((snapshot?.status === 'ready' || snapshot?.status === 'error') && Array.isArray(snapshot.packages)) {
-      return [...snapshot.packages]
-    }
-  } catch {
-    // Fallback to direct RPC when the official plugin manager store is unavailable.
-  }
-  return undefined
 }
 
 function reloadDiscoverIndexesIfMounted(context: Context): void {
