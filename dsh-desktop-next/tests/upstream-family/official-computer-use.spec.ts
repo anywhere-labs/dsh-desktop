@@ -1,4 +1,4 @@
-/** Computer Use (Next) beside the official Computer Use bundle of dsh 0.2.2. */
+/** Computer Use (Next) beside the official Computer Use bundle of dsh 0.2.3. */
 import { mkdtempSync, rmSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -28,6 +28,7 @@ import {
 } from '../../src/host/computer-use-command.ts'
 import {
   OFFICIAL_COMPUTER_USE_PROVIDER,
+  OFFICIAL_CUA_PROGRAM_TOOL,
   OFFICIAL_CUA_TOOL,
   officialComputerUseSupported,
   officialHelperUnsupported,
@@ -117,7 +118,7 @@ async function installOfficialComputerUse(ctx: Context): Promise<() => Promise<v
       cua.installCua(inner, cua.CuaConfig({}), {
         helperPath: join(tmpdir(), 'dsh-cua-native'),
         createChannel: () => { throw new Error('official Computer Use fixtures start no helper') },
-        guidance: 'Official Computer Use guidance', capabilities: { platform: 'macos', systemPointer: true, methods: [], appLevelAccessibility: true, keyboard: ['app'], browser: false, coordinateSpace: 'screenshot-pixels' },
+        getGuidance: () => 'Official Computer Use guidance', capabilities: { platform: 'macos', systemInput: true, methods: [], appLevelAccessibility: true, keyboard: ['app'], browser: false, coordinateSpace: 'screenshot-pixels' },
         permissionParameters: (_method, permission) => ({ permission }),
       })
     },
@@ -149,6 +150,9 @@ describe('installComputerUseCommand beside the official Computer Use', () => {
     native.call.mockResolvedValue({ rawJson: JSON.stringify({ content: [{ type: 'text', text: 'ok' }] }) })
     ctx = new Context()
     ctx.provide('agentPresets', { composedPreset: (agentCtx: Context) => presets.get(scopeOf(agentCtx)) })
+    // The official provider runs `cua_run_code` on a private Node PTC runtime for the Agents off its preset. No test
+    // runs a program, so these services only let that runtime and its tool register.
+    for (const name of ['fs', 'subprocess', 'sandbox', 'sandboxPolicy', 'workingDirectory']) ctx.provide(name, {})
     await ctx.plugin(SessionStore)
     await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(AgentRegistry)
@@ -189,7 +193,7 @@ describe('installComputerUseCommand beside the official Computer Use', () => {
     expect(ctx.commands.find(late, COMPUTER_USE_COMMAND_NAME)).toBeUndefined()
   })
 
-  it('leaves PTC sessions to the official provider and keeps Computer Use (Next) in the others', async () => {
+  it('leaves every session to the official provider: raw `cua` on its preset, `cua_run_code` on the others', async () => {
     await installBoth()
     expect(ctx.get('computerUse')?.providerName).toBe(OFFICIAL_COMPUTER_USE_PROVIDER)
     expect(nextRealm.get('computerUse')?.providerName).toBe('cua-driver-native')
@@ -197,78 +201,84 @@ describe('installComputerUseCommand beside the official Computer Use', () => {
     const { agent: ptc, steer } = await createAgentInTest(ctx, 'session-ptc', { preset: 'ptc' })
     const { agent: standard } = await createAgentInTest(ctx, 'session-standard', { preset: 'standard' })
     await vi.waitFor(() => { expect(ctx.tools.get(OFFICIAL_CUA_TOOL, ptc)).toBeDefined() })
+    await vi.waitFor(() => { expect(ctx.tools.get(OFFICIAL_CUA_PROGRAM_TOOL, standard)).toBeDefined() })
     expect(ctx.tools.get(OFFICIAL_CUA_TOOL, standard)).toBeUndefined()
+    expect(await toolNames(ptc)).toContain(OFFICIAL_CUA_TOOL)
+    expect(await toolNames(standard)).toContain(OFFICIAL_CUA_PROGRAM_TOOL)
 
-    // The session the official provider serves offers no `/computer-use`, so typing it runs nothing.
-    expect(ctx.commands.list(ptc).map(item => item.name)).not.toContain(COMPUTER_USE_COMMAND_NAME)
-    expect(await ctx.commands.execute(ptc, `/${COMPUTER_USE_COMMAND_NAME} Open the settings`, [], signal)).toBeUndefined()
+    // The sessions the official provider serves offer no `/computer-use`, so typing it runs nothing.
+    for (const agent of [ptc, standard]) {
+      expect(ctx.commands.list(agent).map(item => item.name)).not.toContain(COMPUTER_USE_COMMAND_NAME)
+      expect(await ctx.commands.execute(agent, `/${COMPUTER_USE_COMMAND_NAME} Open the settings`, [], signal)).toBeUndefined()
+      expect(foldSessionComputerUseEnabled(agent.session)).toBe(false)
+      expect((await toolNames(agent)).filter(name => name.startsWith(CUA_TOOL_PREFIX))).toEqual([])
+      expect(await sectionNames(agent)).not.toContain(CUA_PROMPT_SECTION)
+    }
     expect(steer).not.toHaveBeenCalled()
-    expect(foldSessionComputerUseEnabled(ptc.session)).toBe(false)
-    const ptcTools = await toolNames(ptc)
-    expect(ptcTools).toContain(OFFICIAL_CUA_TOOL)
-    expect(ptcTools.filter(name => name.startsWith(CUA_TOOL_PREFIX))).toEqual([])
-    expect(await sectionNames(ptc)).not.toContain(CUA_PROMPT_SECTION)
     const denied = await executeToolFixture(ctx, {
       name: `${CUA_TOOL_PREFIX}check_permissions`, callId: ToolCallId('call-ptc'), arguments: { prompt: false }, agent: ptc, signal,
     })
     expect(denied.isError).toBe(true)
     expect(native.call).not.toHaveBeenCalled()
-
-    const standardRun = await ctx.commands.execute(standard, `/${COMPUTER_USE_COMMAND_NAME}`, [], signal)
-    expect(standardRun?.result).toMatchObject({ kind: 'success', text: '已开启 Computer Use（Next），输入 /computer-use off 关闭。' })
-    const standardTools = await toolNames(standard)
-    expect(standardTools).toContain(`${CUA_TOOL_PREFIX}check_permissions`)
-    expect(standardTools).not.toContain(OFFICIAL_CUA_TOOL)
-    expect(await sectionNames(standard)).toContain(CUA_PROMPT_SECTION)
   })
 
-  it('follows preset switches and the official provider leaving', async () => {
-    const { unloadOfficial } = await installBoth()
+  it('follows the official provider arriving, preset switches and the provider leaving', async () => {
+    installComputerUseCommand(ctx, profileDir)
+    await nextRealm.plugin(Provider)
     const { agent } = await createAgentInTest(ctx, 'session-switch', { preset: 'standard' })
-    await ctx.commands.execute(agent, `/${COMPUTER_USE_COMMAND_NAME}`, [], signal)
+    const standardRun = await ctx.commands.execute(agent, `/${COMPUTER_USE_COMMAND_NAME}`, [], signal)
+    expect(standardRun?.result).toMatchObject({ kind: 'success', text: '已开启 Computer Use（Next），输入 /computer-use off 关闭。' })
     expect(await toolNames(agent)).toContain(`${CUA_TOOL_PREFIX}check_permissions`)
-    const switchTo = (preset: string): void => {
-      presets.set(agent, preset)
-      ctx.emit('agent-preset/selected', agent.id, preset)
-    }
     const changes = vi.fn()
     ctx.on('commands/change', changes)
 
-    switchTo('ptc')
-    await vi.waitFor(() => { expect(ctx.tools.get(OFFICIAL_CUA_TOOL, agent)).toBeDefined() })
+    const unloadOfficial = await installOfficialComputerUse(ctx)
+    await vi.waitFor(() => { expect(ctx.tools.get(OFFICIAL_CUA_PROGRAM_TOOL, agent)).toBeDefined() })
     // The command leaves with the tools, before any request is assembled, and the client hears about it.
     expect(ctx.commands.find(agent, COMPUTER_USE_COMMAND_NAME)).toBeUndefined()
     expect(changes).toHaveBeenCalled()
     expect((await toolNames(agent)).filter(name => name.startsWith(CUA_TOOL_PREFIX))).toEqual([])
     expect(await sectionNames(agent)).not.toContain(CUA_PROMPT_SECTION)
 
-    switchTo('standard')
-    await vi.waitFor(() => { expect(ctx.tools.get(OFFICIAL_CUA_TOOL, agent)).toBeUndefined() })
-    expect(ctx.commands.find(agent, COMPUTER_USE_COMMAND_NAME)).toBeDefined()
-    // The session's earlier `/computer-use` still applies.
-    expect(await toolNames(agent)).toContain(`${CUA_TOOL_PREFIX}check_permissions`)
-
+    const switchTo = (preset: string): void => {
+      presets.set(agent, preset)
+      ctx.emit('agent-preset/selected', agent.id, preset)
+    }
     switchTo('ptc')
-    await vi.waitFor(() => { expect(ctx.commands.find(agent, COMPUTER_USE_COMMAND_NAME)).toBeUndefined() })
+    await vi.waitFor(() => { expect(ctx.tools.get(OFFICIAL_CUA_TOOL, agent)).toBeDefined() })
+    expect(ctx.tools.get(OFFICIAL_CUA_PROGRAM_TOOL, agent)).toBeUndefined()
+    expect(ctx.commands.find(agent, COMPUTER_USE_COMMAND_NAME)).toBeUndefined()
+    switchTo('standard')
+    await vi.waitFor(() => { expect(ctx.tools.get(OFFICIAL_CUA_PROGRAM_TOOL, agent)).toBeDefined() })
+    expect(ctx.tools.get(OFFICIAL_CUA_TOOL, agent)).toBeUndefined()
+    expect(ctx.commands.find(agent, COMPUTER_USE_COMMAND_NAME)).toBeUndefined()
+
     changes.mockClear()
     await unloadOfficial()
     expect(ctx.get('computerUse')?.providerName).toBeUndefined()
     expect(ctx.commands.find(agent, COMPUTER_USE_COMMAND_NAME)).toBeDefined()
     expect(changes).toHaveBeenCalled()
+    // The session's earlier `/computer-use` still applies.
     expect(await toolNames(agent)).toContain(`${CUA_TOOL_PREFIX}check_permissions`)
     expect(await sectionNames(agent)).toContain(CUA_PROMPT_SECTION)
   })
 
   it('keeps resident Computer Use (Next) out of the sessions the official provider serves', async () => {
-    const { controller } = await installBoth()
+    const { controller, unloadOfficial } = await installBoth()
     controller.setCommandMode(false)
     const { agent: ptc } = await createAgentInTest(ctx, 'session-ptc', { preset: 'ptc' })
     const { agent: standard } = await createAgentInTest(ctx, 'session-standard', { preset: 'standard' })
     await vi.waitFor(() => { expect(ctx.tools.get(OFFICIAL_CUA_TOOL, ptc)).toBeDefined() })
-    expect((await toolNames(ptc)).filter(name => name.startsWith(CUA_TOOL_PREFIX))).toEqual([])
-    expect(await sectionNames(ptc)).not.toContain(CUA_PROMPT_SECTION)
-    expect(await toolNames(standard)).toContain(`${CUA_TOOL_PREFIX}check_permissions`)
-    expect(await sectionNames(standard)).toContain(CUA_PROMPT_SECTION)
+    await vi.waitFor(() => { expect(ctx.tools.get(OFFICIAL_CUA_PROGRAM_TOOL, standard)).toBeDefined() })
+    for (const agent of [ptc, standard]) {
+      expect((await toolNames(agent)).filter(name => name.startsWith(CUA_TOOL_PREFIX))).toEqual([])
+      expect(await sectionNames(agent)).not.toContain(CUA_PROMPT_SECTION)
+    }
+    await unloadOfficial()
+    for (const agent of [ptc, standard]) {
+      expect(await toolNames(agent)).toContain(`${CUA_TOOL_PREFIX}check_permissions`)
+      expect(await sectionNames(agent)).toContain(CUA_PROMPT_SECTION)
+    }
   })
 })
 

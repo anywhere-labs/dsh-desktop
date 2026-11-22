@@ -15,7 +15,7 @@ const require = createRequire(join(root, 'dsh-desktop-next/package.json'))
 const MagicString = require('magic-string')
 const remapping = require('@jridgewell/remapping')
 const ts = require('typescript')
-const version = '0.2.2-rc.5'
+const version = '0.2.3-alpha.2'
 
 function onboarding() {
   function DesktopOnboardingNavigation({ busy, t, onBack, onSkip }) {
@@ -212,8 +212,8 @@ patchPackage('dsh-client-ui-conversation', ({ once }) => {
       return {text: typeof input?.text === 'string' ? input.text : '', references: []};
     }
   `)
-  once('setDraft(text){const clean=text.replace(REFERENCE_PLACEHOLDER_RE,',
-    'setDraft(text){const clean=(typeof text === "string" ? text : "").replace(REFERENCE_PLACEHOLDER_RE,')
+  once('setDraft(text,undoable=false){const clean=text.replace(REFERENCE_PLACEHOLDER_RE,',
+    'setDraft(text,undoable=false){const clean=(typeof text === "string" ? text : "").replace(REFERENCE_PLACEHOLDER_RE,')
 })
 
 // The hosted Chromium inspector still supplies a no-op embedder callback; Reload otherwise never completes.
@@ -251,11 +251,8 @@ patchPackage('dsh-sandbox-local', ({ once }) => {
 patchPackage('dsh-experimental-client-ui-cot-translation', ({ once }) => {
   once('if(!initial.ok)throw initial.error;', 'if(!initial.ok&&initial.error?.code===`remote-access/denied`)return;if(!initial.ok)throw initial.error;')
 })
-patchPackage('dsh-client-ui-plugin-recommendations', ({ once }) => {
-  once('const inject=[`locale`,`remote`,`actionCards`,`pluginNavigation`];',
-    'const inject=[`locale`,`remote`,`actionCards`,`pluginNavigation`];if(globalThis.__DSH_LIVESHARE_VIEWER__!==void 0)inject.splice(inject.indexOf(`pluginNavigation`),1);')
-  once('ctx.pluginNavigation.openBundle(packageName)', 'if(globalThis.__DSH_LIVESHARE_VIEWER__!==void 0)return;ctx.pluginNavigation.openBundle(packageName)')
-})
+// dsh 0.2.3 plugin recommendations inject `pluginNavigation` only for the card body, so a LiveShare reader's page
+// activates them without a Desktop patch.
 patchPackage('dsh-client-ui-schedule', ({ once }) => {
   once('className:TaskManagerPage_module_css_default.pageHeading,', 'className:TaskManagerPage_module_css_default.pageHeading,"data-window-drag":true,')
 })

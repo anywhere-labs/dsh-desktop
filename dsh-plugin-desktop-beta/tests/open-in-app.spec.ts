@@ -92,13 +92,15 @@ beforeEach(() => {
 afterEach(() => { vi.unstubAllEnvs() })
 
 function routes() {
-  const handlers = new Map<string, (request: IncomingMessage, response: ServerResponse) => Promise<void>>()
+  // dsh 0.2.3 hands each route the Peer the Web server admitted, and these routes require the owner.
+  const owner = { principal: { kind: 'owner' } }
+  const handlers = new Map<string, (request: IncomingMessage, response: ServerResponse, peer?: unknown) => Promise<void>>()
   const ctx = {
     get: () => createLaunchEnvironmentSnapshot([{ source: 'process', values: {} }]),
     effect: (register: () => unknown) => register(),
     connection: { requestRejection: () => undefined },
     subprocess: { resolveExecutable: async (name: string) => name === 'code' ? '/fixture/bin/code' : fixture.executables.get(name) ?? null },
-    webServer: { register: (route: { path: string; handler: (request: IncomingMessage, response: ServerResponse) => Promise<void> }) => {
+    webServer: { register: (route: { path: string; handler: (request: IncomingMessage, response: ServerResponse, peer?: unknown) => Promise<void> }) => {
       handlers.set(route.path, route.handler)
       return () => {}
     } },
@@ -109,13 +111,13 @@ function routes() {
       method: 'POST', headers: { 'content-type': 'application/json' }, url: '/open-in-app/open',
     })
     const response = { statusCode: 0, body: '', setHeader() {}, end(body: string) { this.body = body } }
-    await handlers.get('/open-in-app/open')!(request as unknown as IncomingMessage, response as unknown as ServerResponse)
+    await handlers.get('/open-in-app/open')!(request as unknown as IncomingMessage, response as unknown as ServerResponse, owner)
     return response
   }
   const icon = async (app: string) => {
     const request = Object.assign(Readable.from([]), { method: 'GET', headers: {}, url: `/open-in-app/icon/${app}` })
     const response = { statusCode: 0, body: undefined as unknown, setHeader() {}, end(body?: unknown) { this.body = body } }
-    await handlers.get('/open-in-app/icon')!(request as unknown as IncomingMessage, response as unknown as ServerResponse)
+    await handlers.get('/open-in-app/icon')!(request as unknown as IncomingMessage, response as unknown as ServerResponse, owner)
     return response
   }
   return Object.assign(open, { icon })

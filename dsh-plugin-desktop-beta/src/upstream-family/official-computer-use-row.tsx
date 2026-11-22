@@ -14,7 +14,7 @@ import { ComputerUsePluginArtwork } from '../client/computer-use-command-ui.tsx'
 
 /** The official Computer Use bundle and its macOS provider, which take over PTC sessions while the bundle is on. */
 const OFFICIAL_BUNDLE = '@deepseek-ai/dsh-cua-bundle'
-const OFFICIAL_PROVIDER = '@deepseek-ai/dsh-experimental-cua-macos'
+const OFFICIAL_PROVIDER = '@deepseek-ai/dsh-cua-macos'
 /** The Host settings route; it reports `officialSupported` beside the command mode. */
 const COMPUTER_USE_SETTINGS_ROUTE = '/api/desktop-next/computer-use'
 

@@ -1,4 +1,5 @@
 import { OFFICE_SKILLS_IN_PACKAGE } from '../scripts/upstream-family.ts'
+import { OFFICE_PACKAGE_SKILLS } from './upstream-family.ts'
 import { cp, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
@@ -8,6 +9,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -38,7 +40,7 @@ it('loads this runtime’s Office skills as the runtime patch configures them an
     await ctx.plugin(Loader)
     ctx.loader.builtins.include = Include
     const modules = new Map<string, unknown>([
-      ['agents', AgentRegistry], ['systemPrompt', SystemPrompt], ['tools', ToolRuntime], ['skills', SkillRegistry],
+      ['agents', AgentRegistry], ['sessionProjections', SessionProjectionRegistry], ['systemPrompt', SystemPrompt], ['tools', ToolRuntime], ['skills', SkillRegistry],
       ['workspace-dependencies', workspaceDependencies], ['skill-office', officeSkills],
     ])
     ctx.loader.internal = {
@@ -50,7 +52,7 @@ it('loads this runtime’s Office skills as the runtime patch configures them an
     } as unknown as NonNullable<typeof ctx.loader.internal>
     const config = join(root, 'cordis.yml')
     await writeFile(config, [
-      '- name: agents', '- name: systemPrompt', '- name: tools', '- name: skills', '- name: workspace-dependencies',
+      '- name: agents', '- name: sessionProjections', '- name: systemPrompt', '- name: tools', '- name: skills', '- name: workspace-dependencies',
       '  config:', `    source: ${JSON.stringify(source)}`,
       `    root: ${JSON.stringify(join(root, 'installed'))}`,
       '- name: skill-office', '  config:', '    pythonEnvironment: workspace-dependencies', '',
@@ -59,8 +61,10 @@ it('loads this runtime’s Office skills as the runtime patch configures them an
     await ctx.loader.await()
     for (const entry of ctx.loader.entries()) await entry.fiber?.await()
     if (OFFICE_SKILLS_IN_PACKAGE) {
-      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['office', 'office-docx', 'office-pptx', 'office-xlsx'])
-      expect((await ctx.skills.get('office-pptx'))?.resourceBase).toEqual({ kind: 'directory', path: join(officeAssets, 'office-pptx').split(sep).join('/') })
+      expect((await ctx.skills.list()).map(skill => skill.name)).toEqual([...OFFICE_PACKAGE_SKILLS])
+      for (const name of OFFICE_PACKAGE_SKILLS) {
+        expect((await ctx.skills.get(name))?.resourceBase, name).toEqual({ kind: 'directory', path: join(officeAssets, name).split(sep).join('/') })
+      }
       expect(await ctx.skills.get('office-render')).toBeUndefined()
     } else {
       expect((await ctx.skills.list()).map(skill => skill.name)).toEqual(['office', 'office-docx', 'office-export-pdf', 'office-pptx', 'office-recalculate', 'office-render', 'office-xlsx'])

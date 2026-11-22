@@ -2,6 +2,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import ComputerUseRegistry from '@deepseek-ai/dsh-computer-use'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { ToolCallId } from '@deepseek-ai/dsh-llm'
@@ -26,6 +27,8 @@ beforeEach(async () => {
   native.call.mockResolvedValue({ rawJson: JSON.stringify({ content: [{ type: 'text', text: 'Actual driver: screen recording denied' }] }) })
   ctx = new Context()
   await ctx.plugin(ComputerUseRegistry)
+  // dsh 0.2.3's system prompt service keeps its sections in a Session projection.
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await installToolExecution(ctx)

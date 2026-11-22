@@ -6,9 +6,9 @@ import { installUnpackedPackageResolution } from './host/unpacked-package.ts'
  * of the source stays mirrored.
  */
 import type { Context } from '@deepseek-ai/cordis'
-import type { StartupError } from '@deepseek-ai/dsh-app-boot'
+import type { ProfileContext, StartupError } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
-import type { IndexInjection, WebResource, WebResourceRoute, WebRoute } from '@deepseek-ai/dsh-host-webserver'
+import type { IndexInjection, WebEntryUrl, WebFallback as WebServerFallback, WebResource, WebResourceRoute, WebRoute } from '@deepseek-ai/dsh-host-webserver'
 
 export { ON_DEMAND_BUNDLES, OPTIONAL_BUNDLES, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-official-bundles'
 
@@ -68,12 +68,50 @@ export function webIndexInjections(ctx: Context): IndexInjection[] {
   return ctx.webServer.collectIndexInjections(ctx.connection.browserPeer)
 }
 
+/**
+ * The address the shell opens to sign its window in to the Host's loopback listener. dsh 0.2.3 moved the launch token
+ * from Connection to the official token provider, which adds it to the Web server's entry addresses as `dsh web` prints
+ * them.
+ * @param ctx - booted Host context with the Web server and its authentication providers.
+ * @param baseUrl - the listener's loopback origin.
+ * @returns the address carrying the launch token, which the shell exchanges for its session cookie.
+ */
+export function hostLaunchUrl(ctx: Context, baseUrl: string): string {
+  const entries: WebEntryUrl[] = []
+  ctx.emit(ctx.webServer, 'webserver/entry-url', baseUrl, entries)
+  const entry = entries.find(candidate => candidate.open)
+  if (entry === undefined) throw new Error('No Host authentication provider offers a sign-in address for the Desktop window')
+  return entry.url
+}
+
+/**
+ * The command-line overlay layer of a ProfileContext. dsh 0.2.3 reads the overlay files on every composition.
+ * @param _binName - the launcher name; dsh 0.2.3 evaluates overlays under the composing launcher.
+ * @param overlayPaths - absolute overlay file paths in argument order.
+ * @returns the context fields carrying that layer.
+ */
+export function profileOverlays(_binName: string, overlayPaths: readonly string[]): Pick<ProfileContext, 'overlayPaths'> {
+  return { overlayPaths }
+}
+
+/**
+ * Check that a route handler's request carries Host credentials. The dsh 0.2.3 Web server admits a request before
+ * dispatching it and hands the handler the Peer it admitted, so an anonymous admission is the only refusal left.
+ * @param _connection - the Host's Connection service, which already applied its source and credential checks.
+ * @param args - the arguments the Web server passed to the handler.
+ * @returns 401 for a request admitted without a live Peer, or undefined.
+ */
+export function requestRejection(_connection: Context['connection'], args: Parameters<WebRoute['handler']>): number | undefined {
+  const [, , peer] = args
+  return peer === undefined || peer.signal.aborted ? 401 : undefined
+}
+
 /** A Fetch responder: the Peer is absent for an HTTP request and present for an in-process read. */
 export type WebResourceResponder = WebResource
 /** A named route as the Web server accepts it: a response handler or a Fetch resource. */
 export type WebRegistration = WebRoute | WebResourceRoute
-/** The fallback seat as the Web server accepts it: a response handler or a Fetch resource. */
-export type WebFallback = WebRoute['handler'] | Pick<WebResourceRoute, 'resource'>
+/** The fallback seat as the Web server accepts it: a response handler, or a handler or Fetch resource with its access rule. */
+export type WebFallback = WebRoute['handler'] | WebServerFallback
 
 /** Desktop policy applied around whichever responder a registration carries. */
 export interface ResponderWrappers {
@@ -92,13 +130,16 @@ export function wrapRegistration(route: WebRegistration, wrap: ResponderWrappers
 }
 
 /**
- * Wrap the fallback seat's responder.
+ * Wrap the fallback seat's responder, keeping its access rule.
  * @param fallback - the fallback a plugin submitted.
  * @param wrap - Desktop policy for handlers and resources.
  * @returns the fallback with its wrapped responder.
  */
 export function wrapFallback(fallback: WebFallback, wrap: ResponderWrappers): WebFallback {
-  return typeof fallback === 'function' ? wrap.handler(fallback) : { resource: wrap.resource(fallback.resource) }
+  if (typeof fallback === 'function') return wrap.handler(fallback)
+  return 'resource' in fallback
+    ? { ...fallback, resource: wrap.resource(fallback.resource) }
+    : { ...fallback, handler: wrap.handler(fallback.handler) }
 }
 
 /** Profile selections retired by this upstream family; session data is never rewritten. */

@@ -10,7 +10,7 @@ html[data-next-material='off'][data-platform='darwin'] :has(> [data-shell-overla
   background: var(--dsw-alias-bg-base);
 }
 
-/* Keep Settings nav items at their 40x164 geometry and scroll with the official l2 gutter. */
+/* Keep Settings nav items at their official geometry and scroll with the official l2 gutter. */
 body [data-shortcut-modal='settings'] > nav {
   min-height: 0;
 }

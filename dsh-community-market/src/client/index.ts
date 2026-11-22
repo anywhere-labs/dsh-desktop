@@ -19,6 +19,12 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
     'community-market': MarketLocaleKey
   }
+  // dsh 0.2.3 removed Settings → Built-in plugins with its tab slot; the earlier releases the market still serves declare
+  // it at runtime. `slots.inject` registers the tab only where a release declares the slot, so a 0.2.3 page keeps the
+  // sidebar launcher alone.
+  interface SlotMap {
+    'settings.plugins.tab': { kind: 'list'; scope: 'root'; owner: { children?: never } }
+  }
 }
 
 export const inject = ['slots', 'locale']

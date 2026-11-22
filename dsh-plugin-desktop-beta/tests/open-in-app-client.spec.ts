@@ -41,7 +41,8 @@ async function client(apps: string[]) {
     // dsh 0.2.2 also offers its workspace actions through the context menu service.
     contextMenus: { register: () => () => {} },
     layout: { panelInfo: store({ activePanelId: null }) },
-    sessions: { list: store({ byId: { session: { cwd: '/workspace', retainedBy: { mainView: 1 } } } }) },
+    // dsh 0.2.3 reads a Session's directory from its projections first.
+    sessions: { list: store({ byId: { session: { id: 'session', cwd: '/workspace', retainedBy: { mainView: 1 } } }, projectionsBySession: {} }) },
     remote: {},
   })
   await settle()

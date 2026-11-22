@@ -17,6 +17,7 @@ import './theme.css'
 import { Onboarding } from './onboarding.tsx'
 import { STARTUP_LIMIT_ACTION, StartupLimitCard } from './startup-limit.tsx'
 import { AUTOMATIC_PORT_ACTION, PortConflictCard } from './port-conflict.tsx'
+import { installPrimitivesStyles } from '../client/upstream-family.ts'
 
 function App() {
   const adapter = useMemo(() => window.desktopNext ? new NextSettingsAdapter(window.desktopNext) : undefined, [])
@@ -139,4 +140,5 @@ function NativePages({ adapter }: { adapter: NextSettingsAdapter }) {
     </>} />
 }
 
+installPrimitivesStyles?.(document)
 createRoot(document.getElementById('root')!).render(<CSPProvider disableStyleElements><App /></CSPProvider>)

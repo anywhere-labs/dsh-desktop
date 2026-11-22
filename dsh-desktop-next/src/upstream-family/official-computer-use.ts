@@ -12,8 +12,10 @@ import type {} from '@deepseek-ai/dsh-tools'
 
 /** Name the official provider (`@deepseek-ai/dsh-cua`) takes in the computer-use registry of the official bundle. */
 export const OFFICIAL_COMPUTER_USE_PROVIDER = 'dsh-cua'
-/** Tool the official provider registers in the scope of each Agent it serves, PTC sessions by default. */
+/** Tool the official provider registers in the scope of each Agent on its configured preset, PTC by default. */
 export const OFFICIAL_CUA_TOOL = 'cua'
+/** Tool the official provider of dsh 0.2.3 registers in the scope of every other Agent, running CUA programs itself. */
+export const OFFICIAL_CUA_PROGRAM_TOOL = 'cua_run_code'
 
 /**
  * Whether the official helper cannot start on this system. It requires macOS 14 (Darwin 23), yet the provider
@@ -41,7 +43,8 @@ let helperStarts: boolean | undefined
 
 /**
  * Whether the official Computer Use serves an Agent: its provider holds the registry every other plugin sees, it
- * registered its tool for the Agent (PTC sessions by default), and its helper can start on this system.
+ * registered one of its tools for the Agent (`cua` on its configured preset, `cua_run_code` on the others), and its
+ * helper can start on this system.
  * @param ctx - context with the tools service.
  * @param agent - Agent to check.
  * @returns true where Computer Use (Next) stays out of the Agent.
@@ -50,7 +53,7 @@ export function officialComputerUseServes(ctx: Context, agent: Agent): boolean {
   helperStarts ??= !officialHelperUnsupported()
   return helperStarts
     && ctx.get('computerUse')?.providerName === OFFICIAL_COMPUTER_USE_PROVIDER
-    && ctx.tools.get(OFFICIAL_CUA_TOOL, agent) !== undefined
+    && (ctx.tools.get(OFFICIAL_CUA_TOOL, agent) !== undefined || ctx.tools.get(OFFICIAL_CUA_PROGRAM_TOOL, agent) !== undefined)
 }
 
 /**

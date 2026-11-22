@@ -1,5 +1,5 @@
 {
-  "nodeVersion": "24.21.0",
+  "nodeVersion": "24.22.3",
   "pythonVersion": "3.12.14",
   "pythonRelease": "20260901",
   "pythonPackages": {
@@ -10,7 +10,7 @@
   },
   "artifact": {
     "nodeArchive": "win-arm64.zip",
-    "nodeSha256": "8779b1bde1d39f8d420e3b57aa657b39891af434d3de44a919044cec06785921",
+    "nodeSha256": "b3cc74a295b39d4f273271e96f58c06dd2b35757ca12abec64c7d0598b434f14",
     "pythonTarget": "aarch64-pc-windows-msvc",
     "pythonSha256": "72f4713d056a17961bdba7b43be82a878035040fa1eee30cfd5e43b91a2852d9",
     "wheels": [

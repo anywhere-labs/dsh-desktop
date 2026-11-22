@@ -1,7 +1,7 @@
 {
   "repository": "https://github.com/deepseek-ai/deepseek-harness",
-  "commit": "9c2670d3bce5275e0d1610272958121af87787bb",
-  "version": "0.2.2-rc.5",
+  "commit": "4b399c39a6d1479cd84ca591b4d7c88e24d38a96",
+  "version": "0.2.3-alpha.2",
   "files": [
     {
       "upstream": "apps/desktop/src/host-process.ts",
@@ -28,7 +28,9 @@
     {
       "upstream": "apps/desktop/src/web-document.ts",
       "local": "src/web-document.ts",
-      "upstreamSha256": "70da9451b517f8a3b094b2e361b4d666662052b7761cc0302b97d10e46b3f3ce"
+      "upstreamSha256": "70da9451b517f8a3b094b2e361b4d666662052b7761cc0302b97d10e46b3f3ce",
+      "commit": "9c2670d3bce5275e0d1610272958121af87787bb",
+      "version": "0.2.2-rc.5"
     },
     {
       "upstream": "apps/desktop/src/backend-controller.ts",
@@ -60,7 +62,9 @@
     {
       "upstream": "apps/desktop/tests/web-document.spec.ts",
       "local": "tests/web-document.spec.ts",
-      "upstreamSha256": "251ac35160cf4d5d6d3080158333a4c5e06f2590f414a8f67b3b7b215283d349"
+      "upstreamSha256": "251ac35160cf4d5d6d3080158333a4c5e06f2590f414a8f67b3b7b215283d349",
+      "commit": "9c2670d3bce5275e0d1610272958121af87787bb",
+      "version": "0.2.2-rc.5"
     },
     {
       "upstream": "apps/desktop/tests/backend-controller.spec.ts",
@@ -100,7 +104,9 @@
     {
       "upstream": "apps/desktop/src/keyboard.ts",
       "local": "src/keyboard.ts",
-      "upstreamSha256": "7cf07391d8998813ea894d0e5d2f47053f5cc13dc9f48f257856cd19143b6728"
+      "upstreamSha256": "7cf07391d8998813ea894d0e5d2f47053f5cc13dc9f48f257856cd19143b6728",
+      "commit": "9c2670d3bce5275e0d1610272958121af87787bb",
+      "version": "0.2.2-rc.5"
     },
     {
       "upstream": "apps/desktop/src/keybindings.ts",
@@ -173,7 +179,9 @@
     {
       "upstream": "apps/desktop/scripts/macos-runtime.ts",
       "local": "scripts/sign-runtime.ts",
-      "upstreamSha256": "8b7e4cf628076083f491a2d6996f89254e1f33b4dd3bfa21b345b1d1da89b251"
+      "upstreamSha256": "8b7e4cf628076083f491a2d6996f89254e1f33b4dd3bfa21b345b1d1da89b251",
+      "commit": "9c2670d3bce5275e0d1610272958121af87787bb",
+      "version": "0.2.2-rc.5"
     },
     {
       "upstream": "apps/desktop/scripts/verify-macos-signature.mjs",
@@ -188,7 +196,9 @@
     {
       "upstream": "apps/desktop/tests/macos-runtime.spec.ts",
       "local": "tests/sign-runtime.spec.ts",
-      "upstreamSha256": "56cc13c48e1937e2809a9b2719a9ec55837d650563aec414461cbfeebff86ade"
+      "upstreamSha256": "56cc13c48e1937e2809a9b2719a9ec55837d650563aec414461cbfeebff86ade",
+      "commit": "9c2670d3bce5275e0d1610272958121af87787bb",
+      "version": "0.2.2-rc.5"
     }
   ]
 }

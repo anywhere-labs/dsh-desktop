@@ -20,7 +20,7 @@ it('declares every official optional bundle as a discoverable, version-aligned i
 
 it('archives the application like upstream Desktop while keeping fuses and native inventory aligned with Stable', () => {
   const next = read('../package.json'); const stable = read('../../dsh-plugin-desktop/package.json')
-  expect(next.version).toBe('2.0.24-beta.1')
+  expect(next.version).toBe('2.0.25-beta.1')
   expect(next.desktopName).toBe(`${next.build.linux.executableName}.desktop`)
   expect(next.repository).toEqual({ type: 'git', url: stable.repository.url, directory: 'dsh-plugin-desktop-beta' })
   expect(next.build.appId).toBe('ai.deepseek.dsh.desktop.beta')
@@ -35,7 +35,7 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
     '**/node_modules/@deepseek-ai/libreoffice-kit-*/**/*', '**/node_modules/pnpm/**/*',
     '**/node_modules/@agents-anywhere/dsh-bridge-next/lib/bundled-connector/**/*', '**/node_modules/@deepseek-ai/dsh-agent-preset/**/*',
     '**/node_modules/@deepseek-ai/dsh-skill-badge/**/*', '**/node_modules/@deepseek-ai/dsh-skill-office/**/*',
-    '**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/**/*']))
+    '**/node_modules/@deepseek-ai/dsh-cua-macos/**/*']))
   // The prepared tree is archived verbatim, as upstream archives its prepared dsh tree: one file set for the
   // shell files and one for the dependency tree, because electron-builder leaves out a file set's root node_modules.
   expect(next.build.files).toEqual([{ from: '.desktop-build/payload', filter: ['**/*'] },
@@ -57,7 +57,7 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
   // and the terminal helpers of `@earendil-works/pi-tui`, which Beta's OAR subagents depend on; both CPU builds carry
   // these for both CPUs.
   expect(next.build.mac.x64ArchFiles).toBe(stable.build.mac.x64ArchFiles
-    .replace('sherpa-onnx-darwin-*/**}', 'sherpa-onnx-darwin-*/**,@trycua/cua-driver-darwin-*/**,@ubjs/node-darwin-*/**,@reflink/reflink-darwin-*/**,@earendil-works/pi-tui/native/darwin/prebuilds/**,@deepseek-ai/dsh-experimental-cua-macos/native/bin/darwin-*/**,@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/darwin-*/**}'))
+    .replace('sherpa-onnx-darwin-*/**}', 'sherpa-onnx-darwin-*/**,@trycua/cua-driver-darwin-*/**,@ubjs/node-darwin-*/**,@reflink/reflink-darwin-*/**,@earendil-works/pi-tui/native/darwin/prebuilds/**,@deepseek-ai/dsh-cua-macos/native/bin/darwin-*/**,@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/darwin-*/**}'))
   // The CPU payloads ride beside the archive as extra resources; electron-builder must not re-sign the pre-signed payloads.
   // A macOS package copies only those of its own CPUs, which packaging stages from the prepared tree for each package.
   // macOS also carries the manifest copy the updaters shipped in 2.0.14-beta.1 through 2.0.17-beta.1 read beside the archive.

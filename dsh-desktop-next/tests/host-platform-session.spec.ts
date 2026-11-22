@@ -23,8 +23,6 @@ class Account extends Service {
   async startSignIn() { return state }
   async cancelSignIn() { return state }
   async signOut() { return state }
-  async rejectToken() {}
-  async resolveToken() { return undefined }
   async getPlatformSession() { this.reading.resolve(undefined); return this.read() }
   async *watch(signal: AbortSignal, includeIdentityChanges = false) {
     this.identityChangesRequested = includeIdentityChanges

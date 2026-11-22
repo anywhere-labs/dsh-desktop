@@ -421,10 +421,11 @@ try {
   assert.equal(settingsNavScroll.overscrollBehaviorY, 'contain')
   assert.equal(settingsNavScroll.scrollbarGutter, 'stable')
   assert.equal(settingsNavScroll.paddingBottom, '12px')
-  assert.equal(settingsNavScroll.baseWidth, 164)
+  // Items keep the official geometry while the list scrolls; the official width changes between releases.
+  assert.ok(settingsNavScroll.baseWidth > 0)
   assert.equal(settingsNavScroll.baseHeight, 40)
-  assert.ok(settingsNavScroll.buttons.every(box => box.width === 164 && box.height === 40),
-    `Settings nav items must keep 164x40 geometry when overflowing: ${JSON.stringify(settingsNavScroll.buttons)}`)
+  assert.ok(settingsNavScroll.buttons.every(box => box.width === settingsNavScroll.baseWidth && box.height === 40),
+    `Settings nav items must keep their official geometry when overflowing: ${JSON.stringify(settingsNavScroll.buttons)}`)
   assert.ok(settingsNavScroll.scrollHeight > settingsNavScroll.clientHeight,
     `Settings nav list must overflow vertically: ${JSON.stringify(settingsNavScroll)}`)
   assert.ok(settingsNavScroll.scrollTop > 0,

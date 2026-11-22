@@ -1,0 +1,13 @@
+diff --git a/lib/devtools/chunks/legacy-CSbHPv1n.js b/lib/devtools/chunks/legacy-CSbHPv1n.js
+index a4f5a78..6039c94 100644
+--- a/lib/devtools/chunks/legacy-CSbHPv1n.js
++++ b/lib/devtools/chunks/legacy-CSbHPv1n.js
+@@ -867,7 +867,7 @@ var Wn = function(e, t, n, r, i) {
+ 	setWhitelistedShortcuts(e) {}
+ 	setEyeDropperActive(e) {}
+ 	showCertificateViewer(e) {}
+-	reattach(e) {}
++	reattach(e) { e(); }
+ 	readyForTest() {}
+ 	connectionReady() {}
+ 	setOpenNewWindowForPopups(e) {}
