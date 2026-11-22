@@ -441,3 +441,72 @@ it('renders the on-demand /computer-use command sub-switch on the Computer Use d
   )
   expect(hiddenSwitch).toBeUndefined()
 })
+
+it('reads the dshmarket download region from its status route, so quick configuration selects the Global index', async () => {
+  vi.stubGlobal('window', { addEventListener: vi.fn(), removeEventListener: vi.fn() })
+  // dshmarket reports its region only on its status route; a path it does not serve answers 404.
+  const fetchMock = vi.fn(async (url: string) => url === '/dsh-market/status'
+    ? { ok: true, json: async () => ({ region: 'global', regions: ['global', 'china'] }) }
+    : { ok: false, status: 404, json: async () => ({ error: 'not found' }) })
+  vi.stubGlobal('fetch', fetchMock)
+  const packages = [
+    { name: 'dsh-community-market', enabled: false },
+    { name: 'dshmarket', enabled: true },
+    { name: '@deepseek-ai/dsh-experimental-plugin-market-bundle', enabled: true },
+  ]
+  const custom = 'https://custom.example.com/index.json'
+  const listIndexes = vi.fn(async () => ({ ok: true as const, value: [{ url: custom }] }))
+  const setIndexes = vi.fn(async (_urls: string[]) => ({ ok: true as const, value: undefined }))
+  let OverviewView: ((props: any) => Node) | undefined
+  const ctx: any = {
+    get: (key: string) => key === 'slots' ? ctx.slots : undefined,
+    on: () => () => {},
+    inject: (_services: unknown, callback: (context: unknown) => void) => { callback(ctx) },
+    remote: {
+      $on: () => () => {},
+      pluginManager: { listBundles: vi.fn(async () => ({ ok: true as const, value: packages })), setBundleEnabled: vi.fn() },
+      pluginMarket: { listIndexes, setIndexes, search: vi.fn(async () => ({ ok: true as const, value: {} })) },
+    },
+    slots: {
+      _core: {
+        entries: (name: string) => name === 'main' ? [{
+          options: { key: 'plugins' },
+          inject: () => ({ hooks: { pluginManager: { getSnapshot: () => ({ status: 'ready', packages }) } } }),
+        }] : [],
+      },
+      inject: (_name: string, callback: () => unknown) => { callback() },
+      register: (options: { name: string }, view: (props: any) => Node) => {
+        if (options.name === 'plugins.overview') OverviewView = view
+        return () => {}
+      },
+    },
+  }
+  registerPluginControls(ctx as Context)
+  const props = { context: ctx, t: (key: string) => key === 'language' ? 'zh' : key, onOpenBundle: vi.fn(), onOpenItem: vi.fn() }
+  const closed = component(render(component(OverviewView!(props), 'MarketSourcesButton')!), 'MarketSourcesDialog')!
+  const Dialog = closed.type as (props: Node['props']) => Node
+  // The overview's own state setters would write into the dialog's hook slots below.
+  const dialogProps = { ...closed.props, open: true, onClose: vi.fn(), onChanged: vi.fn() }
+
+  // Open the source configuration on hook slots of its own and run its mount effects.
+  hooks.states = []
+  hooks.effects = []
+  hooks.cursor = 0
+  Dialog(dialogProps)
+  for (const effect of hooks.effects.splice(0)) effect()
+  await vi.waitFor(() => { expect(listIndexes).toHaveBeenCalledTimes(1) })
+  expect(fetchMock).toHaveBeenCalledExactlyOnceWith('/dsh-market/status', expect.objectContaining({ cache: 'no-store' }))
+
+  hooks.cursor = 0
+  const quick = nodes(Dialog(dialogProps)).find(node => node.type === 'button' && node.props.children === '快速配置')!
+  quick.props.onClick()
+  await vi.waitFor(() => { expect(setIndexes).toHaveBeenCalledTimes(2) })
+  const global = 'https://realguan.github.io/dsh-plugin-market/dsh-index.json'
+  // The selected index is saved alone first, then the full list with it in front.
+  expect(setIndexes).toHaveBeenNthCalledWith(1, [global])
+  expect(setIndexes).toHaveBeenNthCalledWith(2, [global, 'https://api.dshfind.com/market/dsh-index.json', custom])
+  await new Promise(resolve => setTimeout(resolve, 0))
+  expect(dialogProps.onChanged).toHaveBeenCalledTimes(1)
+  hooks.cursor = 0
+  expect(nodes(Dialog(dialogProps)).filter(node => node.props.role === 'alert')).toEqual([])
+})

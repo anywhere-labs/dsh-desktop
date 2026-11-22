@@ -16,7 +16,7 @@ export type {
   MarketName,
   MarketSourceEndpoint,
 } from './market-toggle/markets.ts'
-export { orderedMarketSourceUrls, resolveActiveMarketSource, resolveMarketSourceByKey } from './market-toggle/active-source.ts'
+export { orderedMarketSourceUrls, readDshMarketRegion, resolveActiveMarketSource, resolveMarketSourceByKey } from './market-toggle/active-source.ts'
 export type { ActiveMarketResolution, CommunitySourceLike, MarketRuntimeState } from './market-toggle/active-source.ts'
 export {
   configureSingleMarketToOfficial,
