@@ -1,19 +1,36 @@
 /** Desktop records metadata from public official readers; it owns no inspection model. */
 import type { Context } from '@deepseek-ai/cordis'
-import { readPluginInventory } from '@deepseek-ai/dsh-host-plugin-inventory'
+import { readPluginInventory, type PluginInventoryEntry } from '@deepseek-ai/dsh-host-plugin-inventory'
 import type {} from '@deepseek-ai/dsh-experimental-inspector'
 import type { LogInput } from '../log-record.ts'
 
 type RecordDiagnostic = (input: LogInput) => void
 const active = (ctx: Context): boolean => ctx.fiber?.state !== 4 && ctx.fiber?.state !== 5
 
+/**
+ * The official inventory's entries (effective enablement, named lifecycle phase and a failed entry's diagnostic),
+ * without the parts the Desktop's records never use. `readPluginInventory` adds each plugin's display metadata when
+ * the context provides `pluginPackages`, and preset compositions when it provides `agentPresets`. The metadata is read
+ * from disk on every call (manifest, every locale file and the icon, synchronously and uncached): about 36 ms of the
+ * Host's event loop for 210 entries. Given a context that provides only the Loader, the same reader answers in well
+ * under a millisecond. Only ever call this once per occasion, never per Loader event (#1463).
+ * @param ctx - The running application's context; it must provide the Loader.
+ * @returns The Loader's non-group entries, in Loader order.
+ */
+export async function readLoaderInventory(ctx: Context): Promise<readonly PluginInventoryEntry[]> {
+  const loader = ctx.get('loader')
+  if (loader === undefined) throw new Error('The Loader is unavailable')
+  const loaderOnly = { loader, get: (name: string) => name === 'loader' ? loader : undefined }
+  return (await readPluginInventory(loaderOnly as unknown as Context)).entries
+}
+
 /** Keep the official inventory's enablement and named phases, including ancestor enablement. */
 export async function recordOfficialPluginInventory(ctx: Context, record: RecordDiagnostic): Promise<void> {
   if (!ctx.get('loader')) return
   try {
-    const inventory = await readPluginInventory(ctx)
+    const entries = await readLoaderInventory(ctx)
     if (!active(ctx)) return
-    for (const entry of inventory.entries) {
+    for (const entry of entries) {
       record({ source: 'host.plugins', event: 'plugin.snapshot', developer: true,
         fields: { api: 'readPluginInventory', pluginId: entry.entryId, module: entry.moduleName,
           enabled: entry.enabled, fiberPhase: entry.fiberPhase } })

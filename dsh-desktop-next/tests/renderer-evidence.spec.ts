@@ -13,7 +13,7 @@ const sample = () => ({
   longTasks: null,
 })
 
-function page(execute: () => Promise<unknown>) {
+function page(execute: (code: string) => Promise<unknown>) {
   return { isDestroyed: () => false, executeJavaScript: vi.fn(execute) }
 }
 
@@ -27,7 +27,9 @@ it('keeps the last sample that answered and reports its age', async () => {
   await vi.advanceTimersByTimeAsync(RENDERER_ROLLING_INTERVAL_MS)
   expect(contents.executeJavaScript).toHaveBeenCalledOnce()
   clock += 5_000
-  expect(evidence.last()).toMatchObject({ sample: { animationsTotal: 1 }, ageMs: 5_000 })
+  // The periodic sample never lists animations: document.getAnimations() can stall a page that keeps many.
+  expect(contents.executeJavaScript.mock.calls[0]?.[0]).toContain('listAnimations = false')
+  expect(evidence.last()).toMatchObject({ sample: { animations: [], animationsTotal: null, dom: { elements: 100 } }, ageMs: 5_000 })
   evidence.stop()
 })
 

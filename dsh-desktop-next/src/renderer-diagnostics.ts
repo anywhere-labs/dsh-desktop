@@ -82,7 +82,8 @@ export interface RendererDiagnosticsSnapshot {
   view: RendererView
   dom: { elements: number | null }
   animations: RendererAnimation[]
-  animationsTotal: number
+  /** Every animation the document holds, running or not; null when the sample did not list animations. */
+  animationsTotal: number | null
   layers: RendererLayer[]
   frameLoop: RendererFrameLoop
   longTasks: { count: number; totalMs: number } | null
@@ -115,12 +116,16 @@ export interface RendererDiagnosticsTarget {
  * module. Clamping happens again on this side, so a hostile or broken page cannot
  * inflate the export.
  * @param sampleMs - frame window, clamped to a readable range.
+ * @param animations - list the document's animations. `document.getAnimations()` returns every animation the document
+ *   holds, finished ones that fill forwards included, and its cost grows faster than their number: about 8 ms for
+ *   1000 such animations and 2 s for 10000 in Chromium. A sample that runs on a timer leaves it out.
  * @returns one expression that resolves to the snapshot.
  */
-export function rendererDiagnosticsProbe(sampleMs: number = RENDERER_SAMPLE_MS): string {
+export function rendererDiagnosticsProbe(sampleMs: number = RENDERER_SAMPLE_MS, animations = true): string {
   const budget = Number.isFinite(sampleMs) ? Math.max(50, Math.min(10_000, Math.round(sampleMs))) : RENDERER_SAMPLE_MS
   return `(async () => {
   const budget = ${budget};
+  const listAnimations = ${animations ? 'true' : 'false'};
   const clip = (value, max) => typeof value === 'string' ? value.slice(0, max) : null;
   const classNameOf = (element) => {
     const value = element === null || element === undefined ? undefined : element.className;
@@ -221,8 +226,8 @@ export function rendererDiagnosticsProbe(sampleMs: number = RENDERER_SAMPLE_MS):
     try { observer.disconnect(); } catch (error) {}
   }
   const animations = [];
-  let animationsTotal = 0;
-  try {
+  let animationsTotal = listAnimations ? 0 : null;
+  if (listAnimations) try {
     const all = typeof document.getAnimations === 'function' ? document.getAnimations() : [];
     animationsTotal = all.length;
     for (let index = 0; index < all.length && animations.length < 40; index += 1) {
@@ -290,7 +295,7 @@ export function rendererDiagnosticsProbe(sampleMs: number = RENDERER_SAMPLE_MS):
  */
 export async function collectRendererDiagnostics(
   target: RendererDiagnosticsTarget | undefined,
-  options: { sampleMs?: number; timeoutMs?: number } = {},
+  options: { sampleMs?: number; timeoutMs?: number; animations?: boolean } = {},
 ): Promise<RendererDiagnostics> {
   if (target === undefined) return { available: false, reason: 'no-window' }
   try {
@@ -300,9 +305,10 @@ export async function collectRendererDiagnostics(
   }
   const sampleMs = options.sampleMs ?? RENDERER_SAMPLE_MS
   const timeoutMs = options.timeoutMs ?? RENDERER_SAMPLE_TIMEOUT_MS
+  const animations = options.animations ?? true
   let pending: Promise<unknown>
   try {
-    pending = target.executeJavaScript(rendererDiagnosticsProbe(sampleMs))
+    pending = target.executeJavaScript(rendererDiagnosticsProbe(sampleMs, animations))
   } catch (error) {
     return { available: false, reason: 'error', detail: describe(error) }
   }
@@ -318,7 +324,7 @@ export async function collectRendererDiagnostics(
     const outcome = await Promise.race([settled, timedOut])
     if (outcome === undefined) return { available: false, reason: 'timeout' }
     if ('error' in outcome) return { available: false, reason: 'error', detail: describe(outcome.error) }
-    return snapshotOf(outcome.value, sampleMs) ?? { available: false, reason: 'error', detail: 'unexpected renderer snapshot' }
+    return snapshotOf(outcome.value, sampleMs, animations) ?? { available: false, reason: 'error', detail: 'unexpected renderer snapshot' }
   } finally {
     cancelTimeout()
   }
@@ -375,7 +381,7 @@ function booleanOrNull(value: unknown): boolean | null {
 }
 
 /** Rebuild the snapshot from the page's answer, clipping anything the page got wrong. */
-function snapshotOf(value: unknown, sampleMs: number): RendererDiagnosticsSnapshot | undefined {
+function snapshotOf(value: unknown, sampleMs: number, listed: boolean): RendererDiagnosticsSnapshot | undefined {
   const source = recordOf(value)
   const view = source === undefined ? undefined : recordOf(source.view)
   const frameLoop = source === undefined ? undefined : recordOf(source.frameLoop)
@@ -395,8 +401,8 @@ function snapshotOf(value: unknown, sampleMs: number): RendererDiagnosticsSnapsh
       devicePixelRatio: numberOrNull(view.devicePixelRatio, 2),
     },
     dom: { elements: countOf(dom?.elements) },
-    animations: animationsOf(source?.animations),
-    animationsTotal: countOf(source?.animationsTotal) ?? 0,
+    animations: listed ? animationsOf(source?.animations) : [],
+    animationsTotal: listed ? countOf(source?.animationsTotal) ?? 0 : null,
     layers: layersOf(source?.layers),
     frameLoop: {
       frames: countOf(frameLoop.frames) ?? 0,

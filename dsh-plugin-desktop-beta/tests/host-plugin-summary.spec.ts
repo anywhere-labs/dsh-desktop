@@ -8,7 +8,8 @@ const { PLUGIN_CHANGE_SETTLE_MS, PluginSummary, recordSkippedBundles } = await i
 
 afterEach(() => { inventory.read.mockReset(); vi.useRealTimers() })
 
-const running = { get: (name: string) => name === 'loader' ? {} : undefined, fiber: { state: 2 } } as unknown as Context
+const loader = {}
+const running = { get: (name: string) => name === 'loader' ? loader : name === 'pluginPackages' ? {} : undefined, fiber: { state: 2 } } as unknown as Context
 const entry = (entryId: string, fiberPhase: string | null, extra: Record<string, unknown> = {}) =>
   ({ entryId, moduleName: `${entryId}-module`, enabled: true, fiberPhase, ...extra })
 
@@ -27,6 +28,10 @@ it('lists enabled plugins that failed, never loaded or still wait, and counts th
   ] })
   const { records, plugins } = summary()
   await plugins.summarize(running, 'ready')
+  // The official reader gets only the Loader, so it never reads plugin metadata files (tens of ms per summary).
+  const view = inventory.read.mock.calls[0]![0] as { get(name: string): unknown }
+  expect(view.get('loader')).toBe(running.get('loader'))
+  expect(view.get('pluginPackages')).toBeUndefined()
   expect(records).toEqual([
     { source: 'host.plugins', event: 'plugin.failed', level: 'error', message: 'TypeError: tick failed', fields: { pluginId: 'wallpaper', module: 'wallpaper-module' } },
     { source: 'host.plugins', event: 'plugin.not-loaded', level: 'warn', fields: { pluginId: 'broken-import', module: 'broken-import-module' } },

@@ -35,7 +35,6 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export const inject = ['slots', 'layout', 'locale']
 
 export function apply(ctx: Context): void {
-  ctx.effect(installUiDiagnostics, 'AA and Plugins client lifecycle diagnostics')
   // Only the Desktop main window has the channel; an ordinary browser keeps its console.
   const diagnostic = window.desktopNext?.renderer?.diagnostic
   if (diagnostic) ctx.effect(() => installClientDiagnostics(ctx, diagnostic), 'Client failure reports')
@@ -102,57 +101,6 @@ function RendererHealth({ ctx }: { ctx: Context }) {
     if (bridge) return installRendererRecovery(ctx, bridge)
   }, [ctx])
   return null
-}
-
-/** Temporary, metadata-only trace for the AA dialog and its sibling Plugins UI. */
-function installUiDiagnostics(): () => void {
-  const aaButton = '[data-slot="sidebar.footer.action"] button[aria-label="远程控制"], [data-slot="sidebar.footer.action"] button[aria-label="Remote Control"], [data-slot="sidebar.footer.action"] button[aria-label="Mobile connection"], [data-slot="sidebar.footer.action"] button[aria-label="手机连接"]'
-  const read = () => {
-    const button = document.querySelector(aaButton)
-    return {
-      button: button !== null,
-      expanded: button?.getAttribute('aria-expanded') === 'true',
-      dialog: [...document.querySelectorAll('[role="dialog"]')].some(element =>
-        ['远程控制', 'Remote Control', '手机连接', 'Mobile connection', 'Agents Anywhere'].includes(element.getAttribute('aria-label') ?? '')),
-      plugins: document.querySelector('[data-next-plugin-controls]') !== null,
-    }
-  }
-  let previous = read()
-  let lastInput = 'none'
-  const trace = (message: string): void => { console.warn(`[next-ui-diagnostic] ${message}`) }
-  trace(`ready aa=${previous.button} dialog=${previous.dialog} plugins=${previous.plugins}`)
-  const onPointerDown = (event: PointerEvent): void => {
-    const target = event.target
-    if (target instanceof Element && (target.closest(aaButton) || previous.dialog)) {
-      lastInput = target.closest(aaButton) ? 'aa-button' : target.closest('[role="dialog"]') ? 'dialog' : 'outside-dialog'
-    }
-  }
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (previous.dialog && event.key === 'Escape') lastInput = 'Escape'
-  }
-  let queued = false
-  const observer = new MutationObserver(() => {
-    if (queued) return
-    queued = true
-    queueMicrotask(() => {
-      queued = false
-      const next = read()
-      if (Object.keys(next).some(key => next[key as keyof typeof next] !== previous[key as keyof typeof next])) {
-        trace(`state aa=${next.button} expanded=${next.expanded} dialog=${next.dialog} plugins=${next.plugins} lastInput=${lastInput}`)
-        previous = next
-        lastInput = 'none'
-      }
-    })
-  })
-  observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['aria-expanded'] })
-  document.addEventListener('pointerdown', onPointerDown, true)
-  document.addEventListener('keydown', onKeyDown, true)
-  return () => {
-    observer.disconnect()
-    document.removeEventListener('pointerdown', onPointerDown, true)
-    document.removeEventListener('keydown', onKeyDown, true)
-    trace('client plugin disposed')
-  }
 }
 
 function SafeModeNotice({ t }: PropsLocale<'desktop-next'>) {

@@ -8,9 +8,10 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { Profile } from '@deepseek-ai/dsh-app-boot'
 import type {} from '@deepseek-ai/dsh-plugin-manager'
-import { readPluginInventory, type PluginInventoryEntry } from '@deepseek-ai/dsh-host-plugin-inventory'
+import type { PluginInventoryEntry } from '@deepseek-ai/dsh-host-plugin-inventory'
 import type { LogInput } from '../log-record.ts'
 import type {} from '../upstream-family/operation-diagnostics.ts'
+import { readLoaderInventory } from './official-diagnostics.ts'
 
 type RecordDiagnostic = (input: LogInput) => void
 
@@ -59,7 +60,7 @@ export class PluginSummary {
   async summarize(ctx: Context, reason: 'ready' | 'plugins-changed'): Promise<void> {
     if (!ctx.get('loader')) return
     let entries: readonly PluginInventoryEntry[]
-    try { entries = (await readPluginInventory(ctx)).entries } catch (error) {
+    try { entries = await readLoaderInventory(ctx) } catch (error) {
       if (active(ctx)) this.record({ source: 'host.plugins', event: 'summary.failed', level: 'warn', error })
       return
     }
