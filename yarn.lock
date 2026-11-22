@@ -18275,7 +18275,7 @@ __metadata:
     diff: "npm:^9.0.0"
     dsh-community-market: "npm:0.1.0-dev.0"
     dshmarket: "npm:1.73.22"
-    electron: "npm:44.7.0"
+    electron: "npm:44.11.5"
     electron-builder: "npm:26.15.7"
     extract-zip: "npm:2.0.1"
     fflate: "npm:0.8.2"
@@ -18534,7 +18534,7 @@ __metadata:
     diff: "npm:^9.0.0"
     dsh-community-market: "npm:0.1.0-dev.0"
     dshmarket: "npm:1.73.22"
-    electron: "npm:44.7.0"
+    electron: "npm:44.11.5"
     electron-builder: "npm:26.15.7"
     extract-zip: "npm:2.0.1"
     fflate: "npm:0.8.2"
@@ -18957,6 +18957,20 @@ __metadata:
   version: 1.5.411
   resolution: "electron-to-chromium@npm:1.5.411"
   checksum: 10c0/3106a5ccfc036d125a096ab86e314c6fee4af60ef931f19d94304b4a859ffc1036709ffee923823aa35bff4c1e37694e9f6afa9e54ea7da54feb00f8ff8d69e7
+  languageName: node
+  linkType: hard
+
+"electron@npm:44.11.5":
+  version: 44.11.5
+  resolution: "electron@npm:44.11.5"
+  dependencies:
+    "@electron-internal/extract-zip": "npm:^1.0.1"
+    "@electron/get": "npm:^5.0.0"
+    "@types/node": "npm:^24.9.0"
+  bin:
+    electron: cli.js
+    install-electron: install.js
+  checksum: 10c0/1f18a3c6be33dbc9f5de8df7e3902e0485a5579ba6e0fa05fcf28ad1f1726e5b6d0c758909fc51ff642fee5e78bb21cc79af9b40a20e4e66320c24056fb2c385
   languageName: node
   linkType: hard
 

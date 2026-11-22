@@ -271,7 +271,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "diff": "^9.0.0",
-    "electron": "44.7.0",
+    "electron": "44.11.5",
     "electron-builder": "26.15.7",
     "extract-zip": "2.0.1",
     "fflate": "0.8.2",
