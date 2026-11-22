@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-基于 DeepSeek Harness **0.2.2-rc.5** 的独立实验包。主窗口直接加载官方发布的 `@deepseek-ai/dsh-web-frontend`，复用官方 Web 应用、插件管理器和基本桌面样式；Next 添加系统托盘、桌面设置和工具、Profile、恢复、Agents Anywhere 手机远控、社区市场和 dshmarket。
+基于 DeepSeek Harness **0.2.3-alpha.2** 的独立实验包。主窗口直接加载官方发布的 `@deepseek-ai/dsh-web-frontend`，复用官方 Web 应用、插件管理器和基本桌面样式；Next 添加系统托盘、桌面设置和工具、Profile、恢复、Agents Anywhere 手机远控、社区市场和 dshmarket。
 
 ## 开发与验证
 
@@ -116,7 +116,7 @@ export async function record(ctx: Context) {
 
 Computer Use（Next）是桌面端自带的电脑操作，基于内置的官方 `@deepseek-ai/dsh-experimental-computer-use-cua-driver-native`，**默认停用**。在**插件**页顶部的 Computer Use（Next）分区中启用，并查看实际加载状态。入口复用官方插件槽位、开关和插件管理服务；Profile 条目 ID 为 `computer-use-cua-driver-native`。操作和截图沿用现有对话工具卡片及图片附件；理解截图需要模型路由声明支持图片输入。开关左侧的齿轮打开授权弹窗。默认情况下，会话运行 `/computer-use` 后才加载其工具和提示词，`/computer-use off` 将其移除；也可在其插件页改为在所有会话中常驻。
 
-**官方 Computer Use。** DSH 0.2.2 新增官方 Computer Use bundle `@deepseek-ai/dsh-cua-bundle`（仅 macOS）。官方发布版不随包提供它，而是由插件管理器从官方目录提供，并按需安装到当前 Profile；Next 同样不随安装包提供。官方目录默认隐藏这个 bundle，因此 `patches/dsh-official-bundles@<version>.patch` 让它显示出来。于是在 macOS 上，**插件**页会像官方的 Codex、Claude Code 子智能体一样把它标为「未安装」；打开开关即可下载并安装，连同官方发布流程构建、签名并公证的 helper 应用一起装好。其他平台仍不显示它。`computer-use` 注册服务条目和 provider 条目共用 `computerUse: computer-use-next` 隔离域，因此官方 bundle 可以同时挂载自己的注册服务。官方 provider 服务 PTC 会话。在它服务的会话中，Computer Use（Next）不加载工具和提示词，也不提供 `/computer-use` 命令；官方 provider 不再服务该会话后（例如会话切换到其他模式，或关闭官方 bundle），命令随即恢复，无需重启。其他会话、Windows 和 Linux、官方 helper 无法启动的 macOS 14 以下版本，以及没有加载官方 provider 的会话，继续使用 Computer Use（Next），它支持 macOS、Windows 和 Linux。Computer Use（Next）的插件页提供 macOS Computer Use 一行，带有官方 bundle 的开关；当前 Profile 还没有安装时，打开开关会先安装。该开关仅在 macOS 14 及以上可用；其他系统上保持关闭且不可操作。开启后，点击这一行可打开它在**插件**页中的详情页。
+**官方 Computer Use。** DSH 0.2.2 新增官方 Computer Use bundle `@deepseek-ai/dsh-cua-bundle`（仅 macOS）。官方发布版不随包提供它，而是由插件管理器从官方目录提供，并按需安装到当前 Profile；Next 同样不随安装包提供。官方目录默认隐藏这个 bundle，因此 `patches/dsh-official-bundles@<version>.patch` 让它显示出来。于是在 macOS 上，**插件**页会像官方的 Codex、Claude Code 子智能体一样把它标为「未安装」；打开开关即可下载并安装，连同官方发布流程构建、签名并公证的 helper 应用一起装好。其他平台仍不显示它。`computer-use` 注册服务条目和 provider 条目共用 `computerUse: computer-use-next` 隔离域，因此官方 bundle 可以同时挂载自己的注册服务。官方 provider 用 `cua` 工具服务 PTC 会话；从 dsh 0.2.3 起，它还用 `cua_run_code` 服务其他所有会话，在自己的 Node 运行时上执行 CUA 程序。在它服务的会话中，Computer Use（Next）不加载工具和提示词，也不提供 `/computer-use` 命令；官方 provider 不再服务该会话后（例如会话切换到其他模式，或关闭官方 bundle），命令随即恢复，无需重启。Windows 和 Linux、官方 helper 无法启动的 macOS 14 以下版本，以及没有加载官方 provider 的会话，继续使用 Computer Use（Next），它支持 macOS、Windows 和 Linux。Computer Use（Next）的插件页提供 macOS Computer Use 一行，带有官方 bundle 的开关；当前 Profile 还没有安装时，打开开关会先安装。该开关仅在 macOS 14 及以上可用；其他系统上保持关闭且不可操作。开启后，点击这一行可打开它在**插件**页中的详情页。
 
 版本限定的 Yarn 补丁位于 `patches/dsh-experimental-computer-use-cua-driver-native@<version>.patch`。存在 `desktopPermissions` 时，`check_permissions` 通过桌面服务查询权限；`prompt: true` 为缺失的权限打开授权弹窗，再以 `prompt: false` 由驱动执行只读检查。驱动始终报告其实际权限，不根据桌面返回值假定授权成功。没有桌面服务时保留上游行为。固定的 `@trycua/cua-driver@0.28.0` 二进制、操作工具、图片处理和关闭流程保持上游实现。只能注册一个 provider，但这不会自动串行化多个会话对同一桌面的操作。
 

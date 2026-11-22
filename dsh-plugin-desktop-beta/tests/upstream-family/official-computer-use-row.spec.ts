@@ -135,7 +135,7 @@ it('switches the official Computer Use bundle on the Computer Use (Next) page on
   expect(app.navigation.openBundle).toHaveBeenCalledExactlyOnceWith('@deepseek-ai/dsh-cua-bundle')
 
   // The bundle's macOS provider comes up after the plugin manager reloads the Profile.
-  app.plugins.push({ entryId: 'include:cua-macos', moduleName: '@deepseek-ai/dsh-experimental-cua-macos', enabled: true, fiberPhase: 'active' })
+  app.plugins.push({ entryId: 'include:cua-macos', moduleName: '@deepseek-ai/dsh-cua-macos', enabled: true, fiberPhase: 'active' })
   await app.settle()
   view = app.view()
   expect(view.row!.props['data-state']).toBeUndefined()

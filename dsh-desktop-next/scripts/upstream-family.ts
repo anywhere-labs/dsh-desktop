@@ -10,4 +10,7 @@ export const OFFICE_SKILL_UNPACKED: RegExp | undefined = /^node_modules\/@deepse
 export const LEGACY_AGENT_TEAM_BUNDLE: string | undefined = undefined
 
 export { cuaNativeExclusion, prepareCuaNative } from './upstream-family/cua-native.ts'
-export const OFFICIAL_CUA_UNPACKED: RegExp | undefined = /^node_modules\/@deepseek-ai\/dsh-experimental-cua-macos\//u
+export const OFFICIAL_CUA_UNPACKED: RegExp | undefined = /^node_modules\/@deepseek-ai\/dsh-cua-macos\//u
+
+// dsh 0.2.3 syncs the account notification plugin's volatile polling interval into its client boot graph row.
+export const ACCOUNT_NOTIFICATIONS_INTERVAL_MARKER = '"notificationPollIntervalMs":'

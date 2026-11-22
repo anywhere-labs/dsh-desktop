@@ -11,3 +11,7 @@ export { installOfficialComputerUseStyles, useOfficialComputerUse } from '../ups
 // The settings shell of dsh 0.2.2 takes section icons from plugins, so Desktop settings shows its display glyph
 // without patching the shell. The module lives below src/upstream-family/.
 export { registerDesktopSettingsIcon } from '../upstream-family/desktop-settings-icon.tsx'
+
+// The Client primitives of dsh 0.2.3 leave their stylesheets to the official renderer, which the Desktop native pages
+// do not run; those pages install the sheets themselves. The module lives below src/upstream-family/.
+export { installPrimitivesStyles } from '../upstream-family/primitives-styles.ts'

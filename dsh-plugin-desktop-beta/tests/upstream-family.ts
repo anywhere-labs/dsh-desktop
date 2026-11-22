@@ -16,3 +16,6 @@ export async function installToolExecution(ctx: Context): Promise<void> {
   // dsh 0.2.2 dispatches every call through the selected executor plugin.
   await ctx.plugin(NativeToolExecutor)
 }
+
+/** Skills `@deepseek-ai/dsh-skill-office` registers: dsh 0.2.3 folds the format guidance into the one `office` skill. */
+export const OFFICE_PACKAGE_SKILLS: readonly string[] = ['office']

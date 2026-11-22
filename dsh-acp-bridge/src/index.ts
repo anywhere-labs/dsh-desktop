@@ -39,10 +39,20 @@ function unloadedAlone(ctx: Context, active: Context['fiber']['state']): boolean
   }
 }
 
+/**
+ * The root Context. Cordis in dsh 0.2.3 keys it by the global `cordis.root` symbol; the 0.2.2 releases expose `ctx.root`.
+ * @param ctx - the plugin's Context.
+ * @returns the root Context of the running DSH.
+ */
+function rootOf(ctx: Context): Context {
+  const root = Reflect.get(ctx, Symbol.for('cordis.root')) as Context | undefined
+  return root ?? (ctx as Context & { readonly root: Context }).root
+}
+
 export function apply(ctx: Context, config: Config): void {
   const log = fromCordis(ctx.logger)
   const bridge = new AcpBridge(ctx, { home: config.home || defaultHome() }, log)
-  const active = ctx.root.fiber.state
+  const active = rootOf(ctx).fiber.state
   ctx.effect(() => {
     const started = bridge.start().catch(error => log.error('acp-bridge: ACP endpoint failed to start', error))
     return async () => {

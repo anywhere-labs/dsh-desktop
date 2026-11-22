@@ -472,7 +472,7 @@ jobs:
             const { dirname, relative, resolve } = require('node:path')
             try {
               const bundle = createRequire(resolve('dsh-plugin-desktop-beta/package.json')).resolve('@deepseek-ai/dsh-cua-bundle/package.json')
-              console.log(relative(process.cwd(), dirname(createRequire(bundle).resolve('@deepseek-ai/dsh-experimental-cua-macos/package.json'))))
+              console.log(relative(process.cwd(), dirname(createRequire(bundle).resolve('@deepseek-ai/dsh-cua-macos/package.json'))))
             } catch { console.log('') }")
           echo "dir=$dir" >> "$GITHUB_OUTPUT"
           echo "swift=$(xcrun swift --version 2>&1 | shasum -a 256 | cut -c1-16)" >> "$GITHUB_OUTPUT"

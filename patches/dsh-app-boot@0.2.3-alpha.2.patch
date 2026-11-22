@@ -1,0 +1,68 @@
+diff --git a/lib/index.js b/lib/index.js
+index 57450a3..537544e 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -8798,6 +8798,10 @@ function readBundlePatches(binName, context, initialProfile) {
+ * @throws When a present patch file or any overlay file is missing, unreadable, or not a patch list.
+ */
+ function readProfilePatches(binName, context, initialProfile) {
++	// Embedded launchers own their filtered bundle graph and final platform overlays.
++	// A pending patch document still has to reach them: the config editor composes
++	// its edit before persisting it, and judges the write against that composition.
++	if (context.readPatches !== void 0) return structuredClone(context.readPatches(initialProfile?.patches));
+ 	const patches = structuredClone([
+ 		...readBundlePatches(binName, context, initialProfile),
+ 		...initialProfile?.patches ?? loadOptionalPatches(binName, context.patchPath) ?? [],
+@@ -8981,7 +8985,14 @@ function prefixes(path) {
+ 	return canonical === configured ? [configured] : [configured, canonical];
+ }
+ function compileResolution(resolution) {
++	// Desktop owns one pinned official runtime. A shared Profile may contain
++	// another release hoisted by an optional bundle; it must not replace core
++	// services. CLI profiles retain upstream's local-package precedence.
++	const desktop = resolution.entries.some((entry) => entry.scope === "installation" &&
++		["dsh-desktop-next", "dsh-plugin-desktop-beta"].includes(entry.name));
+ 	return {
++		desktopPackages: new Set(desktop ? resolution.entries.filter((entry) => entry.scope === "installation" &&
++			/^@deepseek-ai\/(?:dsh(?:-.+)?|cordis(?:-plugin-.+)?|schemastery|cosmokit)$/.test(entry.name)).map((entry) => entry.name) : []),
+ 		entries: new Map(resolution.entries.map((entry) => [entry.name, {
+ 			...entry,
+ 			realDir: canonicalPath(entry.packageDir)
+@@ -9293,6 +9304,11 @@ var ResolutionRouter = class {
+ 		const memo = layer.kind === "profile" && (cjs === void 0 || cjs.cacheable);
+ 		const name = barePackageName(request);
+ 		if (name === void 0) return void 0;
++		if (resolution.desktopPackages.has(name)) {
++			const state = { route: { kind: "interception", entry: resolution.entries.get(name), after: layer.after } };
++			if (memo) requests.set(request, state);
++			return state;
++		}
+ 		if (parentRoutes.selfReferenceName === void 0 || !memo) parentRoutes.selfReferenceName = selfReferenceName(parent);
+ 		if (parentRoutes.selfReferenceName === name || parentRoutes.selfReferenceName === null) {
+ 			const state = { route: { kind: "native" } };
+@@ -9410,6 +9426,8 @@ var ResolutionRouter = class {
+ 		const name = barePackageName(request);
+ 		const { layer } = parentRoutes;
+ 		if (name === void 0 || layer.kind !== "profile" || !layer.active || !resolution.localPackageNames.has(name)) return void 0;
++		// Desktop: a core package of the pinned runtime is never a Profile-local package.
++		if (resolution.desktopPackages.has(name)) return void 0;
+ 		const state = { route: { kind: "native" } };
+ 		parentRoutes.requests.set(request, state);
+ 		return state;
+diff --git a/lib/types/profile-context.d.ts b/lib/types/profile-context.d.ts
+index 7192c2f..e43f7ba 100644
+--- a/lib/types/profile-context.d.ts
++++ b/lib/types/profile-context.d.ts
+@@ -8,6 +8,12 @@ export interface ProfilePnpmInvocation {
+ }
+ /** Current profile facts; scheduling and mutation belong to their callers. */
+ export interface ProfileContext {
++    /**
++     * Embedded launcher composition, shared by management operations and HMR.
++     * @param profilePatches Pending profile patch document to compose instead of
++     * the one on disk; omitted by callers that have not staged an edit.
++     */
++    readonly readPatches?: (profilePatches?: readonly PatchOptions[]) => readonly PatchOptions[];
+     readonly name: string;
+     /** Packaged applications supply their bundled runtime instead of a PATH executable. */
+     readonly packageManager?: ProfilePnpmInvocation;

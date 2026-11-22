@@ -97,7 +97,8 @@ function fixture() {
   const state = { status: 'ready', packages: [official, remote], busy: [] as string[], notice: null, highlight: null, confirm: null,
     install: { open: false }, versions: {}, update: null }
   const item = { id: 'desktop-next-computer-use', label: 'Computer Use (Next)' }
-  const ledger = { items: [item], bundles: new Set([remote.name]), rows: new Set(),
+  // dsh 0.2.3 also lists settings sections the Plugins page shows on bundle rows.
+  const ledger = { items: [item], bundles: new Set([remote.name]), rows: new Set(), sections: [],
     hiddenBundles: new Set([remote.name]), hiddenItems: new Set([item.id]) }
   let overview: { onOpenBundle(name: string): void; onOpenItem(id: string): void }
   const setEnabled = vi.fn()
@@ -106,6 +107,8 @@ function fixture() {
     useStore: (select: (state: unknown) => unknown) => select(navigation.getSnapshot()), actions: navigation.actions,
     t: (key: string) => key, ensure: vi.fn(), resolveText: (text: string) => text,
     useConfigurations: () => [], usePluginManager: () => state, useConfigLedger: () => ledger, usePluginTabs: () => [], setEnabled, setRowEnabled,
+    // dsh 0.2.3 reports the page's own plugin synchronization.
+    useClientSync: (select: (sync: { syncing: boolean; failures: unknown[] }) => unknown) => select({ syncing: false, failures: [] }), retryClient: vi.fn(),
     useBundleDetails: (select: (details: unknown) => unknown) => select({}), useLocale: (select: (locale: { active: string }) => unknown) => select({ active: 'en' }),
     createHeaderRef: () => () => {}, ensureVersions: vi.fn(), loadDetail: vi.fn(),
     renderSlot: (name: string, owner: Record<string, unknown>, options?: unknown) => {

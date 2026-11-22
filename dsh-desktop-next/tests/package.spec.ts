@@ -35,7 +35,7 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
     '**/node_modules/@deepseek-ai/libreoffice-kit-*/**/*', '**/node_modules/pnpm/**/*',
     '**/node_modules/@agents-anywhere/dsh-bridge-next/lib/bundled-connector/**/*', '**/node_modules/@deepseek-ai/dsh-agent-preset/**/*',
     '**/node_modules/@deepseek-ai/dsh-skill-badge/**/*', '**/node_modules/@deepseek-ai/dsh-skill-office/**/*',
-    '**/node_modules/@deepseek-ai/dsh-experimental-cua-macos/**/*']))
+    '**/node_modules/@deepseek-ai/dsh-cua-macos/**/*']))
   // The prepared tree is archived verbatim, as upstream archives its prepared dsh tree: one file set for the
   // shell files and one for the dependency tree, because electron-builder leaves out a file set's root node_modules.
   expect(next.build.files).toEqual([{ from: '.desktop-build/payload', filter: ['**/*'] },
@@ -57,7 +57,7 @@ it('archives the application like upstream Desktop while keeping fuses and nativ
   // and the terminal helpers of `@earendil-works/pi-tui`, which Beta's OAR subagents depend on; both CPU builds carry
   // these for both CPUs.
   expect(next.build.mac.x64ArchFiles).toBe(stable.build.mac.x64ArchFiles
-    .replace('sherpa-onnx-darwin-*/**}', 'sherpa-onnx-darwin-*/**,@trycua/cua-driver-darwin-*/**,@ubjs/node-darwin-*/**,@reflink/reflink-darwin-*/**,@earendil-works/pi-tui/native/darwin/prebuilds/**,@deepseek-ai/dsh-experimental-cua-macos/native/bin/darwin-*/**,@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/darwin-*/**}'))
+    .replace('sherpa-onnx-darwin-*/**}', 'sherpa-onnx-darwin-*/**,@trycua/cua-driver-darwin-*/**,@ubjs/node-darwin-*/**,@reflink/reflink-darwin-*/**,@earendil-works/pi-tui/native/darwin/prebuilds/**,@deepseek-ai/dsh-cua-macos/native/bin/darwin-*/**,@deepseek-ai/libreoffice-kit/frame-forwarding/prebuilds/darwin-*/**}'))
   // The CPU payloads ride beside the archive as extra resources; electron-builder must not re-sign the pre-signed payloads.
   // A macOS package copies only those of its own CPUs, which packaging stages from the prepared tree for each package.
   // macOS also carries the manifest copy the updaters shipped in 2.0.14-next through 2.0.17-next read beside the archive.

@@ -29,7 +29,7 @@ These capabilities are exposed through ACP. How tool cards, forms, plans and men
 
 ## Installation
 
-DSH must be on the 0.2.2 release line (`>=0.2.2-rc.1 <0.3.0-0`); automated checks cover 0.2.2-rc.4 only.
+DSH must be on the 0.2.2 or 0.2.3 release line (`>=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0`); automated checks cover 0.2.3-alpha.2 only.
 
 - **DeepSeek Harness Desktop**: open "Plugins" → "Add plugin" in the left sidebar, enter the package name `@agents-anywhere/dsh-acp-bridge`, install it, enable it and restart.
 - **DSH installed from the command line**: for example, for the `desktop` profile:

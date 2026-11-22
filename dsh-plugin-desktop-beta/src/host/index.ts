@@ -6,7 +6,7 @@ import { loadLayeredEnv } from '@deepseek-ai/dsh-app-boot'
 import { runProfile } from '@deepseek-ai/dsh/profile-boot'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { installOfficeSkillResolution, installOfficialCuaResolution, hostOperationDiagnostics, installHostFileDragResources, webIndexInjections } from '../upstream-family.ts'
+import { installOfficeSkillResolution, installOfficialCuaResolution, hostLaunchUrl, hostOperationDiagnostics, installHostFileDragResources, webIndexInjections } from '../upstream-family.ts'
 import { loadNextProfile, NEXT_PACKAGE, readNextProfilePatches } from '../profiles.ts'
 import { bundledPnpmInvocation } from '../bundled-pnpm.ts'
 import { configureNextBrowserAccess } from '../desktop-browser-access.ts'
@@ -173,7 +173,7 @@ export async function main(): Promise<void> {
     throw new Error(`Desktop core services unavailable: ${missingCore.join(', ')}. Check plugin compatibility and startup errors in the recovery report.`)
   }
   hostLog({ source: 'host', event: 'process.ready' })
-  await send({ type: 'ready', url: ctx.connection.authenticatedUrl(`http://127.0.0.1:${ctx.webServer.port}`),
+  await send({ type: 'ready', url: hostLaunchUrl(ctx, `http://127.0.0.1:${ctx.webServer.port}`),
     injections: webIndexInjections(ctx) })
   auditHostPlugins(ctx)
   // Whatever the logging setting: which enabled plugins failed, never loaded or still wait, now and after each change.

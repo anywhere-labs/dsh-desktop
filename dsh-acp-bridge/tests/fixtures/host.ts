@@ -17,7 +17,7 @@ import Gateway from '@deepseek-ai/dsh-api-gateway'
 import * as Remotes from '@deepseek-ai/dsh-api-remotes'
 import SessionController from '@deepseek-ai/dsh-api-session-controller'
 import Attachments from '@deepseek-ai/dsh-attachment-local'
-import { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
+import { ConnectionAuthentication, HostConnectionService } from '@deepseek-ai/dsh-client-connection'
 import FileUploads from '@deepseek-ai/dsh-client-file-upload'
 import Commands from '@deepseek-ai/dsh-commands'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
@@ -96,13 +96,15 @@ function aborted(signal: AbortSignal | undefined): Promise<never> {
 
 /**
  * The latest tool result, else the latest message a person wrote (DSH appends runtime context after
- * it), else a subagent's completion notice when that came after the person's message.
+ * it), else a subagent's completion notice when that came after the person's message. A subagent's
+ * task counts as written by a person: dsh 0.2.2 sends it as one, dsh 0.2.3 as a message from the parent Agent.
  */
 function lastText(options: GenerateOptions): { role: string, text: string } {
   const messages = options.messages as readonly Message[]
   const last = messages.at(-1)
   if (last?.role === 'tool') return { role: 'tool', text: '' }
-  const user = messages.findLast(message => message.role === 'user' && (message.source?.kind === 'user' || message.source?.kind === 'subagent-settled'))
+  const kinds: readonly string[] = ['user', 'agent-message', 'subagent-settled']
+  const user = messages.findLast(message => message.role === 'user' && kinds.includes(message.source?.kind ?? ''))
   if (user?.source?.kind === 'subagent-settled') return { role: 'notice', text: '' }
   return { role: 'user', text: (user?.content ?? []).map(block => block.text ?? '').join('') }
 }
@@ -358,7 +360,14 @@ export async function startHost(options: HostOptions = {}): Promise<Host> {
     await ctx.plugin(Approval, { policy: 'ask' }).await()
     await ctx.plugin(PermissionPresets, { defaultPreset: 'workspace-write' }).await()
     // In-process route registry and owner Peer; this fixture never serves browser requests.
-    new HostConnectionService(ctx, [], {} as ConstructorParameters<typeof HostConnectionService>[2])
+    // dsh 0.2.3 verifies credentials in a separate registry that the Connection service reads when it starts.
+    new ConnectionAuthentication(ctx)
+    await new Promise<void>((resolve) => {
+      ctx.inject(['connection.authentication'], (connectionCtx) => {
+        new HostConnectionService(connectionCtx, [])
+        resolve()
+      })
+    })
     await ctx.plugin(FileUploads).await()
     await ctx.plugin(LocalFileSystem).await()
     if (options.subagents || options.agentTeams) {

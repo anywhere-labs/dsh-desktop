@@ -6,7 +6,7 @@ import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
-import { LEGACY_AGENT_TEAM_BUNDLE } from './upstream-family.ts'
+import { ACCOUNT_NOTIFICATIONS_INTERVAL_MARKER, LEGACY_AGENT_TEAM_BUNDLE } from './upstream-family.ts'
 import { DesktopHostProcess } from '../lib/host-process.js'
 import { NextRecovery } from '../lib/recovery.js'
 import { NEXT_PACKAGE, NextProfiles } from '../lib/profiles.js'
@@ -361,7 +361,7 @@ try {
   assert.ok(html.includes('"id":"dsh-desktop-next"'), 'Next window controls must be a client boot entry')
   assert.ok(html.includes('@agents-anywhere/dsh-bridge-next'), 'AA client must appear in the boot manifest')
   assert.ok(html.includes('"id":"@deepseek-ai/dsh-client-ui-account-notifications"'), 'Account notification cards must be a client boot entry')
-  assert.ok(html.includes('globalThis["__DSH_ACCOUNT_NOTIFICATIONS_CONFIG__"]'), 'Account notifications must receive their polling interval')
+  assert.ok(html.includes(ACCOUNT_NOTIFICATIONS_INTERVAL_MARKER), 'Account notifications must receive their polling interval')
   assert.equal(html.includes('"id":"dshmarket"'), false, 'The other market client must be unloaded')
   const installedAgain = await rpc('installBundle', { spec: fixture })
   assert.equal(installedAgain.application, 'applied', JSON.stringify(installedAgain))

@@ -1,0 +1,17 @@
+diff --git a/lib/index.js b/lib/index.js
+index d1d8fb8..9c9c2a5 100644
+--- a/lib/index.js
++++ b/lib/index.js
+@@ -324,6 +324,12 @@ function parseSessionReferenceText(text) {
+ 			const uri = markdownUri ?? bareUri;
+ 			/* v8 ignore next -- the two-alternative regex always captures exactly one URI group. */
+ 			if (uri === void 0) throw new SessionReferenceError("session reference URI is missing", "SESSION_REFERENCE_INVALID_REFERENCE");
++			// Desktop: a bare candidate that is not canonical stays in the text unchanged; only a Markdown mention fails.
++			if (markdownUri === void 0) try {
++				decodeSessionReferenceUri(uri);
++			} catch {
++				return _match;
++			}
+ 			const sessionId = decodeSessionReferenceUri(uri);
+ 			const label = rawLabel === void 0 ? sessionId : unescapeLabel(rawLabel);
+ 			references.push({

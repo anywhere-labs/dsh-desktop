@@ -14,7 +14,7 @@ import { pluginMarketPatch } from './profile-plugin-market.ts'
 import { RETIRED_SCHEDULE_BUNDLE, retiredSchedulePatch } from './profile-schedule.ts'
 import { removeLinkProjectionsSafely } from '../../dsh-plugin-desktop/src/link-projections.ts'
 import { insideArchive, unpackedPath } from './asar-archive-policy.ts'
-import { ON_DEMAND_BUNDLES, PROFILE_TEMPLATES, RETIRED_PROFILE_BUNDLES } from './upstream-family.ts'
+import { ON_DEMAND_BUNDLES, PROFILE_TEMPLATES, RETIRED_PROFILE_BUNDLES, profileOverlays } from './upstream-family.ts'
 
 export const NEXT_PACKAGE = fileURLToPath(new URL('../package.json', import.meta.url))
 export const WEB_BUNDLES = [...PROFILE_TEMPLATES.web!.bundles]
@@ -451,7 +451,7 @@ export function readNextProfilePatches(projectDir: string, home: string, overlay
     : [...profilePatches]
   const context: ProfileContext = { name: basename(projectDir), dir: projectDir, patchPath: profile.patchPath,
     installAnchor: NEXT_PACKAGE, cwd: process.cwd(), home, startedBundles: profile.layers.map(layer => layer.packageName),
-    overlays: overlays.flatMap(path => loadOverlayPatches('dsh-plugin-desktop-beta', path)),
+    ...profileOverlays('dsh-plugin-desktop-beta', overlays),
     telemetryDisabledEnv: process.env.DSH_TELEMETRY_DISABLED }
   return readProfilePatches('dsh-plugin-desktop-beta', context, profile)
 }
