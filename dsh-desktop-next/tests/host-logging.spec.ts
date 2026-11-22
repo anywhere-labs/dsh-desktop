@@ -207,3 +207,19 @@ it('records an MCP outage once with its last error, the end of retries and the r
   await ctx.fiber.dispose()
   expect(stopped).toBe(true)
 })
+
+it('records an MCP server that waits for OAuth authorization once, with why, and its recovery', async () => {
+  const { ctx, records } = await environment(false)
+  ctx.provide('mcpManager', { list: () => [], async *watch() {} } as never)
+  await new Promise(resolve => setTimeout(resolve, 0))
+  const status = (value: object) => ctx.emit('mcp-manager/status', 'notion', value as never)
+  status({ state: 'waiting-authorization', reason: 'expired', lastError: 'refresh token expired; access_token=private-value' })
+  status({ state: 'waiting-authorization', reason: 'expired', lastError: 'refresh token expired' })
+  status({ state: 'connecting', attempt: 0 })
+  status({ state: 'connected', toolCount: 7, connectedAt: 0 })
+  expect(records().map(record => record.event)).toEqual(['mcp.failed', 'mcp.recovered'])
+  expect(records()[0]).toMatchObject({ source: 'host.health', level: 'warn', message: 'MCP server notion: waiting for authorization (expired)',
+    fields: { server: 'notion', state: 'waiting-authorization', reason: 'expired' } })
+  expect(JSON.stringify(records())).not.toContain('private-value')
+  expect(records()[1]).toMatchObject({ level: 'info', fields: { server: 'notion', state: 'connected', toolCount: 7 } })
+})

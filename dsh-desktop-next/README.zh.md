@@ -256,7 +256,7 @@ Next 在 `<数据目录>/logs/desktop-next.log` 保存可直接阅读的近期�
 
 官方启动器没有挂载前的 Context 钩子，因此 Next 回放有限的日志缓冲、记录启动完成后的插件状态，并保留原始进程输出和致命错误；不在官方缓冲中的极早期调试日志无法补录。这是进程及应用日志，不包含操作系统系统调用追踪。Electron Crashpad 另在本地运行且不上传，Electron 进程或 Node 模式 Host 的原生崩溃会在 `electron-user-data/Crashpad` 中留下 minidump。
 
-不打开开发者日志时，Next 也会记录 Host 和插件的健康状况。MCP 服务每次断线记录首次失败（附最后一次错误）、停止自动重连和恢复（`host.health mcp.*`）。失败的回合，或中途有模型请求失败的回合，记录一条 `host.health turn.summary`，写明失败请求数和最终失败代码，与结束该回合的错误（`host.agent agent.failed`）并列；失败请求本身只在开发者日志中记录。每个结束的插件操作或插件命令记录其结果（`host.plugins operation.*`）。桌面端还会记录超过一分钟没有发来内存样本的 Host 及其恢复（`host.process heartbeat.*`），以及停止响应的主窗口及其恢复（`renderer window.*`）。
+不打开开发者日志时，Next 也会记录 Host 和插件的健康状况。MCP 服务每次断线记录首次失败（附最后一次错误）、停止自动重连和恢复（`host.health mcp.*`）。缺少凭据、或在等用户完成 OAuth 授权的服务也按同样方式记录，并写明原因。失败的回合，或中途有模型请求失败的回合，记录一条 `host.health turn.summary`，写明失败请求数和最终失败代码，与结束该回合的错误（`host.agent agent.failed`）并列；失败请求本身只在开发者日志中记录。每个结束的插件操作或插件命令记录其结果（`host.plugins operation.*`）。桌面端还会记录超过一分钟没有发来内存样本的 Host 及其恢复（`host.process heartbeat.*`），以及停止响应的主窗口及其恢复（`renderer window.*`）。
 
 Host 每秒采样一次事件循环，对话回合或插件操作进行时改为每 250 毫秒一次。事件循环忙碌期间，采样迟到 500 毫秒（活动时 400 毫秒）即记为卡顿，因此 1.5 秒以上（活动时 650 毫秒以上）的卡顿一定会被记录。事件循环空闲时的迟到（例如进程被挂起之后）不算卡顿。卡顿在现有的 30 秒内存推送时上报：先记 `host.health stall.started` 及延迟，恢复后记 `stall.recovered`，附最大延迟和持续的窗口数。延迟是下限：实际阻塞最多再长一个采样间隔。这次推送还把该窗口的事件循环利用率带进内存样本。与 Host 输出一样，这些记录重复时会折叠。它们不含提示词、工具参数或模型输出，也不会触发自动恢复。
 

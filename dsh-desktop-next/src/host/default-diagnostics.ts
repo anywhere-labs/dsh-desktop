@@ -71,8 +71,11 @@ export function observeMcp(ctx: Context, record: (input: LogInput) => void): voi
       else if (value.state === 'failed') {
         if (previous !== true) emit('gave-up', 'warn', 'no further connection attempts', {})
         outages.set(server, true)
-      } else if (value.state === 'reconnecting' || value.state === 'waiting-credentials') {
-        if (previous === undefined) emit('failed', 'warn', value.state === 'reconnecting' ? 'connection failed; retrying' : 'waiting for credentials',
+      } else if (value.state === 'reconnecting' || value.state === 'waiting-credentials' || value.state === 'waiting-authorization') {
+        // An OAuth server without a usable grant (dsh 0.2.3) waits for the user like one with a missing credential.
+        const waiting = value.state === 'reconnecting' ? 'connection failed; retrying'
+          : value.state === 'waiting-credentials' ? 'waiting for credentials' : `waiting for authorization (${value.reason})`
+        if (previous === undefined) emit('failed', 'warn', waiting,
           value.state === 'reconnecting' ? { attempt: value.attempt, maxAttempts: value.maxAttempts } : {})
         outages.set(server, false)
       }
