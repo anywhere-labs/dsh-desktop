@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { ACCOUNT_NOTIFICATIONS_INTERVAL_MARKER, LEGACY_AGENT_TEAM_BUNDLE } from './upstream-family.ts'
+import { OFFICIAL_CONNECTORS } from '../src/upstream-family-labels.ts'
 import { DesktopHostProcess } from '../lib/host-process.js'
 import { NextRecovery } from '../lib/recovery.js'
 import { NEXT_PACKAGE, NextProfiles } from '../lib/profiles.js'
@@ -168,6 +169,14 @@ try {
   const disabledSchedule = await rpc('setPluginEnabled', { id: scheduleRow.entryId, enabled: false })
   assert.equal(disabledSchedule.application, 'applied', JSON.stringify(disabledSchedule))
   const availableBundles = await rpc('listBundles')
+  // The official connectors Desktop adds to the on-demand catalog are offered uninstalled, at this DSH version.
+  for (const name of OFFICIAL_CONNECTORS ?? []) {
+    const bundle = availableBundles.find(row => row.name === name)
+    assert.ok(bundle?.official && bundle.availability === 'missing' && !bundle.installed && !bundle.enabled, JSON.stringify(bundle))
+    assert.deepEqual(bundle.installTarget, { spec: `${name}@${upstreamVersion}`, version: upstreamVersion }, JSON.stringify(bundle))
+    assert.ok(bundle.meta?.title?.zh && bundle.meta.icon?.startsWith('data:image/svg+xml;base64,'), JSON.stringify(bundle.meta))
+    assert.equal(bundle.error, undefined, JSON.stringify(bundle))
+  }
   // Older runtimes offer Team as a bundle; rc.2 composes its services into Web.
   for (const [name, rowIds] of [
     ...(LEGACY_AGENT_TEAM_BUNDLE ? [[LEGACY_AGENT_TEAM_BUNDLE, ['agent-team', 'ui-agent-team']]] : []),
@@ -478,7 +487,7 @@ try {
     'Missing core services must fail startup explicitly instead of showing an empty session list')
   await host.stop()
   host = undefined
-  console.log(`Next Host smoke passed (${process.argv.includes('--electron') ? 'Electron Node mode' : 'Node'}): authenticated ${upstreamVersion} Web, mixed-version Profile isolation, persisted workspace/session reads, translation limits, no Tokens entry, exclusive market selection and independent AA persisted, official row toggles, dshmarket offline install and cross-market toggle and removal through the official manager, official install/remove with a freshly published locked dependency, native dshmarket update origin gate, graceful shutdown, recovery boot, profile switch and a second computer-use registry beside Computer Use (Next).`)
+  console.log(`Next Host smoke passed (${process.argv.includes('--electron') ? 'Electron Node mode' : 'Node'}): authenticated ${upstreamVersion} Web, mixed-version Profile isolation, persisted workspace/session reads, translation limits, no Tokens entry, uninstalled official connectors offered at this version, exclusive market selection and independent AA persisted, official row toggles, dshmarket offline install and cross-market toggle and removal through the official manager, official install/remove with a freshly published locked dependency, native dshmarket update origin gate, graceful shutdown, recovery boot, profile switch and a second computer-use registry beside Computer Use (Next).`)
 } finally {
   await runner?.dispose()
   await host?.stop()

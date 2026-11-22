@@ -97,8 +97,9 @@ function fixture() {
   const state = { status: 'ready', packages: [official, remote], busy: [] as string[], notice: null, highlight: null, confirm: null,
     install: { open: false }, versions: {}, update: null }
   const item = { id: 'desktop-next-computer-use', label: 'Computer Use (Next)' }
-  // dsh 0.2.3 also lists settings sections the Plugins page shows on bundle rows.
+  // dsh 0.2.3 also lists settings sections the Plugins page shows on bundle rows; Desktop adds its bundle groups.
   const ledger = { items: [item], bundles: new Set([remote.name]), rows: new Set(), sections: [],
+    groups: [] as { id: string; label: string; bundles: string[] }[],
     hiddenBundles: new Set([remote.name]), hiddenItems: new Set([item.id]) }
   let overview: { onOpenBundle(name: string): void; onOpenItem(id: string): void }
   const setEnabled = vi.fn()
@@ -236,6 +237,47 @@ it('keeps an official optional bundle in the extensions group with its artwork, 
   const top = component(detail, 'DetailTop')!
   switchOf(component(top.props.actions, 'EnableSwitch')!).props.onChange(false)
   expect(app.setEnabled).toHaveBeenLastCalledWith(name, false)
+})
+
+it('draws a Desktop bundle group like the official experimental group, with its own More page, notice and member pages', () => {
+  const app = fixture()
+  const shipped = { ...app.remote, name: 'shipped-member', enabled: false, rows: [] }
+  const onDemand = { ...app.remote, name: 'on-demand-member', enabled: false, installed: false, availability: 'missing', rows: [] }
+  app.state.packages.push(shipped, onDemand)
+  app.ledger.groups.push({ id: 'beta', label: 'Beta plugins', bundles: [shipped.name, onDemand.name] })
+  const packageCards = (tree: unknown): Node[] => nodes(tree).filter(node => typeof node.type === 'function' && node.type.name === 'PackageCard')
+  const section = (tree: unknown): Node => nodes(tree).find(node => node.props['data-plugin-group'] === 'desktop-beta')!
+  // The members leave the official experimental group; the group's section comes first, with its title and More.
+  const list = app.page()
+  expect(groups(list)).toEqual(['desktop-beta', 'extensions'])
+  expect(nodes(section(list)).some(node => node.type === 'h3' && node.props.children === 'Beta plugins')).toBe(true)
+  expect(packageCards(section(list))).toEqual([])
+  expect(packageCards(list).map(card => card.props.pkg.name)).toEqual(['official-team'])
+  nodes(section(list)).find(node => typeof node.props.onClick === 'function')!.props.onClick()
+  // Its More page is the official one, with the group's title, its notice and its members in group order.
+  const more = app.page()
+  expect(nodes(more).some(node => node.type === 'h1' && node.props.children === 'Beta plugins')).toBe(true)
+  const notice = nodes(more).find(node => node.props.name === 'plugins.group')!
+  expect([notice.props.owner, notice.props.options]).toEqual([{ group: 'beta' }, { only: 'beta' }])
+  expect(packageCards(more).map(card => card.props.pkg.name)).toEqual([shipped.name, onDemand.name])
+  // A member's page names the group in its breadcrumb and returns to the group's More page.
+  packageCards(more)[0]!.props.onOpen()
+  const detail = component(app.page(), 'PackageDetail')!
+  expect([detail.props.inMore, detail.props.moreLabel]).toEqual([true, 'Beta plugins'])
+  const top = component(render(detail), 'DetailTop')!
+  expect(top.props.crumbText).toBe('Beta plugins')
+  top.props.onBack()
+  expect(packageCards(app.page()).map(card => card.props.pkg.name)).toEqual([shipped.name, onDemand.name])
+  // A member the profile enabled joins the group's section on the main list, as an enabled experimental bundle does.
+  shipped.enabled = true
+  nodes(app.page()).find(node => node.props['aria-label'] === 'backToList')!.props.onClick()
+  expect(packageCards(section(app.page())).map(card => card.props.pkg.name)).toEqual([shipped.name])
+  // Without a group the official More page keeps its own title and list.
+  app.ledger.groups.length = 0
+  nodes(app.page()).find(node => typeof node.props.onClick === 'function' && node.props.children?.[0] === 'moreAction')!.props.onClick()
+  const official = app.page()
+  expect(nodes(official).some(node => node.type === 'h1' && node.props.children === 'moreTitle')).toBe(true)
+  expect(nodes(official).some(node => node.props.name === 'plugins.group')).toBe(false)
 })
 
 

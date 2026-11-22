@@ -19,6 +19,8 @@ const STYLES = `
 /* Title row and status tag as the official Plugins cards draw them. */
 .dshNextPluginCardTitle { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
 .dshNextPluginStatusTag { height: 18px; padding: 0 7px; font-size: 10px; line-height: 1; }
+/* The Beta plugins notice opens the official More page's list, in the type of the Plugins page intro. */
+.dshNextBetaPluginsNotice { margin: 0; font-size: 13px; line-height: 20px; color: var(--dsw-alias-label-secondary); }
 .dshNextPluginCardOpen { width: max-content; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer; }
 .dshNextPluginCardOpen::after { content: ''; position: absolute; inset: 0; border-radius: 12px; }
 .dshNextPluginCardOpen:focus-visible { outline: none; }

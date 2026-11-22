@@ -4,6 +4,21 @@
  * (scripts/verify-desktop-variants.mjs); it stays free of imports because renderer bundles use it.
  */
 
+/**
+ * Official connector plugins this release publishes on npm without listing them anywhere. Desktop adds them to the
+ * official on-demand catalog (`patches/dsh-official-bundles@<version>.patch`), so they install at the running DSH
+ * version, and lists them among the Beta plugins in this order.
+ */
+export const OFFICIAL_CONNECTORS: readonly string[] | undefined = [
+  '@deepseek-ai/dsh-linear',
+  '@deepseek-ai/dsh-notion',
+  '@deepseek-ai/dsh-tencent-docs',
+  '@deepseek-ai/dsh-feishu',
+  '@deepseek-ai/dsh-wecom',
+  '@deepseek-ai/dsh-tencent-meeting',
+  '@deepseek-ai/dsh-dingtalk',
+]
+
 /** How the official `@deepseek-ai/dsh-experimental-plugin-market-bundle` presents itself in its locale files. */
 export const OFFICIAL_PLUGIN_INDEX = {
   title: { zh: '自定义插件索引', en: 'Custom plugin indexes' },
@@ -14,19 +29,13 @@ export const OFFICIAL_PLUGIN_INDEX = {
 } as const
 
 /**
- * The official OAR subagent provider, as its locale files present it. Desktop ships it as an optional bundle whose
- * rows are the README's Codex and Claude Code example, with Claude Code accepting file edits instead of running
- * read-only (`patches/dsh-experimental-subagent-oar@<version>.patch`). Each provider row's configuration page offers
- * these launch choices; the shipped one equals the row the patch declares.
+ * The official OAR subagent provider. Desktop ships it as an optional bundle whose rows are the README's Codex and
+ * Claude Code example, with Claude Code accepting file edits instead of running read-only
+ * (`patches/dsh-experimental-subagent-oar@<version>.patch`), and lists it among the Beta plugins. Each provider row's
+ * configuration page offers these launch choices; the shipped one equals the row the patch declares.
  */
 export const OFFICIAL_OAR_SUBAGENTS = {
   bundle: '@deepseek-ai/dsh-experimental-subagent-oar',
-  title: { zh: 'OAR 子智能体', en: 'OAR subagents' },
-  description: {
-    zh: '通过 OAR 向已安装的编程智能体委派任务，并提供 Codex 和 Claude Code 配置。',
-    en: 'Delegate tasks to installed coding agents through OAR, with Codex and Claude Code configurations.',
-  },
-  experimental: true,
   rows: [
     {
       id: 'experimental-subagent-oar-codex',

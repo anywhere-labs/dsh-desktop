@@ -119,9 +119,9 @@ __metadata:
   languageName: unknown
   linkType: soft
 
-"@agents-anywhere/dsh-bridge-next@file:vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c32fa2d478e22.r1dfd55f5.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
-  version: 2.2.0-desktop.c32fa2d478e22.r1dfd55f5
-  resolution: "@agents-anywhere/dsh-bridge-next@file:vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c32fa2d478e22.r1dfd55f5.tgz#vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c32fa2d478e22.r1dfd55f5.tgz::hash=b18218&locator=deepseek-harness-desktop%40workspace%3A."
+"@agents-anywhere/dsh-bridge-next@file:vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c3c9f17b0bdd4.r1dfd55f5.tgz::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 2.2.0-desktop.c3c9f17b0bdd4.r1dfd55f5
+  resolution: "@agents-anywhere/dsh-bridge-next@file:vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c3c9f17b0bdd4.r1dfd55f5.tgz#vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c3c9f17b0bdd4.r1dfd55f5.tgz::hash=98c262&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@dataiku/uv": "npm:0.12.0"
     clsx: "npm:2.1.1"
@@ -129,13 +129,13 @@ __metadata:
     meshcall: "npm:0.3.0"
     qrcode: "npm:1.5.4"
   peerDependencies:
-    "@deepseek-ai/cordis": ~4.0.4 || ~4.1.0
+    "@deepseek-ai/cordis": ~4.0.4 || ~4.1.0 || ~4.2.0-alpha.1
     "@deepseek-ai/dsh-llm": 0.2.1-rc.3 || 0.2.3-alpha.2
     "@deepseek-ai/dsh-session": 0.2.1-rc.3 || 0.2.3-alpha.2
     "@deepseek-ai/dsh-typert-protocol": 0.2.1-rc.3 || 0.2.3-alpha.2
-    "@deepseek-ai/schemastery": ~3.18.4 || ~3.19.0
+    "@deepseek-ai/schemastery": ~3.18.4 || ~3.19.0 || ~3.20.0-alpha.1
     react: ^18.3.1
-  checksum: 10c0/e900d97ff473c2ecbc5f9e876f688c4104b566d1446756f88f2dd2af7a209f800dda357dca64b41e132e9990ba5efd7c6d8f6ab0f2dd6ee4a2bfb5431441c124
+  checksum: 10c0/bbdf4471857ed5b7cdeedc77724f1c02a1d245628b9c9933f5dce050127fcb376c3b010ce45703aaa458ac8bb251237d077f2d31d09794df4166d8ba375b27e8
   languageName: node
   linkType: hard
 
@@ -3377,7 +3377,7 @@ __metadata:
 
 "@deepseek-ai/dsh-client-ui-plugin-manager@patch:@deepseek-ai/dsh-client-ui-plugin-manager@file%3Avendor/dsh-runtime/0.2.3-alpha.2/deepseek-ai-dsh-client-ui-plugin-manager-0.2.3-alpha.2.tgz#./patches/dsh-client-ui-plugin-manager@0.2.3-alpha.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.3-alpha.2
-  resolution: "@deepseek-ai/dsh-client-ui-plugin-manager@patch:@deepseek-ai/dsh-client-ui-plugin-manager@file%3Avendor/dsh-runtime/0.2.3-alpha.2/deepseek-ai-dsh-client-ui-plugin-manager-0.2.3-alpha.2.tgz%23vendor/dsh-runtime/0.2.3-alpha.2/deepseek-ai-dsh-client-ui-plugin-manager-0.2.3-alpha.2.tgz%3A%3Ahash=2c46be&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-client-ui-plugin-manager@0.2.3-alpha.2.patch::version=0.2.3-alpha.2&hash=3bbd8c&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-plugin-manager@patch:@deepseek-ai/dsh-client-ui-plugin-manager@file%3Avendor/dsh-runtime/0.2.3-alpha.2/deepseek-ai-dsh-client-ui-plugin-manager-0.2.3-alpha.2.tgz%23vendor/dsh-runtime/0.2.3-alpha.2/deepseek-ai-dsh-client-ui-plugin-manager-0.2.3-alpha.2.tgz%3A%3Ahash=2c46be&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-client-ui-plugin-manager@0.2.3-alpha.2.patch::version=0.2.3-alpha.2&hash=842bd6&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-timeout": "npm:0.2.3-alpha.2"
     "@deepseek-ai/dsh-typert-protocol": "npm:0.2.3-alpha.2"
@@ -3385,7 +3385,7 @@ __metadata:
     zod: "npm:4.6.6"
   peerDependencies:
     "@deepseek-ai/cordis": ~4.2.0-alpha.1
-  checksum: 10c0/3c6929465f186f18eead8cf21c07ef248c2b6092dfff2532fb0e4c8571c4ec9c3614616353dd5438ebc265b5b45b8f5e0ef3b12aa27701dfd72c443f7ab01f07
+  checksum: 10c0/fa98bec0e7bfd7adf41785d70d761e84927c6cf2e22d6157c9c1e77b2b9e16a1557b859a2f24af4cbf891fe9ba606d092bb42db6c50c6699cc5ed92705d917df
   languageName: node
   linkType: hard
 
@@ -7256,6 +7256,17 @@ __metadata:
   peerDependencies:
     "@deepseek-ai/cordis": ~4.2.0-alpha.1
   checksum: 10c0/21a124cecefe4cfd6720ffb7ef326d3b7fe2b7da2181dd5486aa237ca07b15009b1e7936a1a4ca2f47c3d926d000287fc0c856bd7ebffdf09746b673bb9b1fd1
+  languageName: node
+  linkType: hard
+
+"@deepseek-ai/dsh-official-bundles@patch:@deepseek-ai/dsh-official-bundles@file%3Avendor/dsh-runtime/0.2.3-alpha.2/deepseek-ai-dsh-official-bundles-0.2.3-alpha.2.tgz#./patches/dsh-official-bundles@0.2.3-alpha.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
+  version: 0.2.3-alpha.2
+  resolution: "@deepseek-ai/dsh-official-bundles@patch:@deepseek-ai/dsh-official-bundles@file%3Avendor/dsh-runtime/0.2.3-alpha.2/deepseek-ai-dsh-official-bundles-0.2.3-alpha.2.tgz%23vendor/dsh-runtime/0.2.3-alpha.2/deepseek-ai-dsh-official-bundles-0.2.3-alpha.2.tgz%3A%3Ahash=45c29a&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-official-bundles@0.2.3-alpha.2.patch::version=0.2.3-alpha.2&hash=a38937&locator=deepseek-harness-desktop%40workspace%3A."
+  dependencies:
+    "@deepseek-ai/dsh-package-manifest": "npm:0.2.3-alpha.2"
+  peerDependencies:
+    "@deepseek-ai/cordis": ~4.2.0-alpha.1
+  checksum: 10c0/8c8300cffd776e432ca2e6d4130fcd8a73d679d20e8f78c4a1784965e855d0d068489eef35c31da880baa3ab1d0ce2d98417edfcda8dea8960eb73ee6f9fa463
   languageName: node
   linkType: hard
 
@@ -18066,7 +18077,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "dsh-desktop-next@workspace:dsh-desktop-next"
   dependencies:
-    "@agents-anywhere/dsh-bridge-next": "file:../vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c32fa2d478e22.r1dfd55f5.tgz"
+    "@agents-anywhere/dsh-bridge-next": "file:../vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c3c9f17b0bdd4.r1dfd55f5.tgz"
     "@base-ui/react": "npm:^1.7.0"
     "@deepseek-ai/cordis": "npm:4.2.0-alpha.1"
     "@deepseek-ai/cordis-plugin-group": "npm:1.2.0-alpha.1"
@@ -18325,7 +18336,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "dsh-plugin-desktop-beta@workspace:dsh-plugin-desktop-beta"
   dependencies:
-    "@agents-anywhere/dsh-bridge-next": "file:../vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c32fa2d478e22.r1dfd55f5.tgz"
+    "@agents-anywhere/dsh-bridge-next": "file:../vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c3c9f17b0bdd4.r1dfd55f5.tgz"
     "@base-ui/react": "npm:^1.7.0"
     "@deepseek-ai/cordis": "npm:4.2.0-alpha.1"
     "@deepseek-ai/cordis-plugin-group": "npm:1.2.0-alpha.1"
@@ -18584,7 +18595,7 @@ __metadata:
   version: 0.0.0-use.local
   resolution: "dsh-plugin-desktop@workspace:dsh-plugin-desktop"
   dependencies:
-    "@agents-anywhere/dsh-bridge-next": "file:../vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c32fa2d478e22.r1dfd55f5.tgz"
+    "@agents-anywhere/dsh-bridge-next": "file:../vendor/agents-anywhere/agents-anywhere-dsh-bridge-next-2.2.0-desktop.c3c9f17b0bdd4.r1dfd55f5.tgz"
     "@base-ui/react": "npm:^1.7.0"
     "@deepseek-ai/cordis": "npm:4.0.5"
     "@deepseek-ai/cordis-plugin-group": "npm:1.0.5"

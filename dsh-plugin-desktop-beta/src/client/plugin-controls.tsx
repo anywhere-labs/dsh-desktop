@@ -7,7 +7,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-client-ui-plugin-manager/client'
 import type {} from '@deepseek-ai/dsh-plugin-market/types'
 import {
-  Button, IconWarningOutlineRegular, Modal, PluginArtworkDefault, PluginArtworkSubagent, StateDot, Switch, Tag,
+  Button, IconWarningOutlineRegular, Modal, PluginArtworkDefault, StateDot, Switch, Tag,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 import { readMarketState } from '../../../dsh-community-market/src/client/api.ts'
 import { Choice, MARKET_OPTIONS, marketBody, marketTitle } from './DesktopSettingsSection.tsx'
@@ -20,7 +20,7 @@ import {
   readDshMarketRegion, removeMarketSourcesFromOfficial, resolveActiveMarketSource, toggleMarketEndpointInOfficial,
   type BuiltInMarketKey, type MarketName, type MarketRuntimeState,
 } from './market-toggle.ts'
-import { OFFICIAL_OAR_SUBAGENTS, OFFICIAL_PLUGIN_INDEX } from '../upstream-family-labels.ts'
+import { OFFICIAL_CONNECTORS, OFFICIAL_OAR_SUBAGENTS, OFFICIAL_PLUGIN_INDEX } from '../upstream-family-labels.ts'
 import type { LaunchPresetBundle } from '../launch-presets.ts'
 import { registerLaunchPresets } from './launch-presets.tsx'
 
@@ -29,19 +29,16 @@ const COMPUTER_ITEM = 'desktop-next-computer-use'
 
 type Translate = (cn: string, en: string) => string
 
-/** An official optional bundle shown with a card of its own, in the words of the bundle's locale files. */
-export interface OfficialBundleCard {
-  readonly bundle: string
-  readonly title: { readonly zh: string; readonly en: string }
-  readonly description: { readonly zh: string; readonly en: string }
-  /** The package belongs to the official experimental group; the card carries the official Experimental tag. */
-  readonly experimental?: boolean
-}
-
-/** OAR subagents, when the followed release ships the provider. */
-const OAR_SUBAGENTS: OfficialBundleCard | undefined = OFFICIAL_OAR_SUBAGENTS
 /** Launch choices of the OAR provider rows, on their configuration pages. */
 const OAR_LAUNCH_PRESETS: LaunchPresetBundle | undefined = OFFICIAL_OAR_SUBAGENTS
+
+/** The group of official plugins upstream ships or publishes without listing, under the Plugins page's Beta plugins. */
+export const BETA_PLUGINS_GROUP = 'beta'
+/** Its members in page order: the shipped OAR subagents, then the connectors installed on demand. */
+export const BETA_PLUGIN_BUNDLES: readonly string[] = [
+  ...OAR_LAUNCH_PRESETS === undefined ? [] : [OAR_LAUNCH_PRESETS.bundle],
+  ...OFFICIAL_CONNECTORS ?? [],
+]
 
 interface BundlesCacheEntry {
   loaded: boolean
@@ -88,8 +85,13 @@ export function registerPluginControls(ctx: Context): void {
       const dispose = inner.slots.register({ name: 'plugins.overview', id: 'desktop-next', order: 0,
         locale: 'desktop-next', inject: () => ({ context: inner }),
       }, PluginControls)
-      const hidden = [COMMUNITY, MARKET, REMOTE, ...OAR_SUBAGENTS === undefined ? [] : [OAR_SUBAGENTS.bundle]]
+      const hidden = [COMMUNITY, MARKET, REMOTE]
         .map(key => inner.slots.register({ name: 'plugins.bundle.hidden', key }, () => null))
+      // The members leave the official lists for this group's section and More page, which draw the official cards.
+      const group = BETA_PLUGIN_BUNDLES.length === 0 ? () => {} : inner.slots.register({ name: 'plugins.group', id: BETA_PLUGINS_GROUP,
+        order: 0, label: () => inner.locale.bind('desktop-next')('language') === 'zh' ? 'Beta 插件' : 'Beta plugins',
+        locale: 'desktop-next', inject: () => ({ bundles: BETA_PLUGIN_BUNDLES }),
+      }, BetaPluginsNotice)
       const item = inner.slots.register({ name: 'plugins.item', id: COMPUTER_ITEM,
         label: () => inner.locale.bind('desktop-next')('language') === 'zh' ? 'Computer Use（Next）' : 'Computer Use (Next)',
         locale: 'desktop-next', inject: () => ({ context: inner }),
@@ -98,10 +100,19 @@ export function registerPluginControls(ctx: Context): void {
       const actions = inner.slots.register({ name: 'plugins.detail.actions', id: COMPUTER_ITEM,
         locale: 'desktop-next', inject: () => ({ context: inner }),
       }, ComputerUseActions)
-      return () => { actions(); hiddenItem(); item(); for (const off of hidden) off(); dispose() }
+      return () => { group(); actions(); hiddenItem(); item(); for (const off of hidden) off(); dispose() }
     })
     if (OAR_LAUNCH_PRESETS !== undefined) registerLaunchPresets(inner, OAR_LAUNCH_PRESETS)
   })
+}
+
+/** The notice the Beta plugins page shows above its cards. */
+function BetaPluginsNotice({ t }: PropsLocale<'desktop-next'> & PropsRuntime<'plugins.group'> & { bundles: readonly string[] }) {
+  return <p className="dshNextBetaPluginsNotice" data-next-beta-plugins-notice>
+    {t('language') === 'zh'
+      ? '这些插件由官方提供，请按需下载、配置和开启，目前可能还不完善'
+      : 'These plugins come from the official DeepSeek Harness releases. Download, configure and enable them as you need them; they may still be incomplete.'}
+  </p>
 }
 
 function PluginControls({ context, t: translate, onOpenBundle, onOpenItem }: PropsLocale<'desktop-next'> & PropsRuntime<'plugins.overview'> & { context: Context }) {
@@ -217,16 +228,6 @@ function PluginControls({ context, t: translate, onOpenBundle, onOpenItem }: Pro
         icon={<ComputerUsePluginArtwork size={36} />} onOpen={() => { onOpenItem(COMPUTER_ITEM) }}>
         <ComputerUseSettings context={context} zh={zh} />
       </PluginCard>
-      {OAR_SUBAGENTS !== undefined && <PluginCard title={t(OAR_SUBAGENTS.title.zh, OAR_SUBAGENTS.title.en)}
-        description={t(OAR_SUBAGENTS.description.zh, OAR_SUBAGENTS.description.en)}
-        tags={OAR_SUBAGENTS.experimental === true
-          ? <Tag className="dshNextPluginStatusTag" tone="info">{t('实验性', 'Experimental')}</Tag> : undefined}
-        icon={<PluginArtworkSubagent size={36} />} onOpen={() => { onOpenBundle(OAR_SUBAGENTS.bundle) }}>
-        <BundleSwitch context={context} t={t} name={OAR_SUBAGENTS.bundle}
-          label={t(`启用 ${OAR_SUBAGENTS.title.zh}`, `Enable ${OAR_SUBAGENTS.title.en}`)}
-          row={bundles.find(row => row.name === OAR_SUBAGENTS.bundle)} loading={loading}
-          onChanged={() => { refresh(value => value + 1) }} />
-      </PluginCard>}
     </div>
     {notice && <p role="status" className="dshDesktopSettingsHint">{notice}</p>}
     {error && <div role="alert" className="dshDesktopSettingsError">{error} <Button variant="outline" size="sm" disabled={loading || busy} onClick={() => { setError(''); refresh(value => value + 1) }}>{t('重试', 'Retry')}</Button></div>}
@@ -528,15 +529,14 @@ function ComputerUseActions({ context, t, subject }: PropsLocale<'desktop-next'>
   return <ComputerUseSettings context={context} zh={t('language') === 'zh'} mode="actions" />
 }
 
-function PluginCard({ title, description, icon, tags, onOpen, children }: {
-  title: string; description: string; icon: ReactNode; tags?: ReactNode; onOpen(): void; children: ReactNode
+function PluginCard({ title, description, icon, onOpen, children }: {
+  title: string; description: string; icon: ReactNode; onOpen(): void; children: ReactNode
 }) {
   return <div className="dshNextPluginCard" data-next-plugin-card>
     <span className="dshNextPluginIcon" aria-hidden="true">{icon}</span>
     <div className="dshNextPluginCardMain">
       <div className="dshNextPluginCardTitle">
         <button type="button" className="dshNextPluginCardOpen" aria-label={`${title} — ${description}`} onClick={onOpen}>{title}</button>
-        {tags}
       </div>
       <span className="dshNextPluginCardDescription">{description}</span>
     </div>
@@ -576,43 +576,6 @@ function RemoteControlSettings({ context, t, row, loading, onChanged }: {
     <div className="dshNextPluginActions">
       <Button variant="outline" size="sm" disabled={!row?.enabled || loading || busy} onClick={openPanel}>{t('打开面板', 'Open panel')}</Button>
       <Switch label={t('启用远程控制', 'Enable remote control')} checked={row?.enabled ?? false}
-        disabled={loading || busy || !row || row.readOnlyReason !== undefined || row.error !== undefined}
-        onChange={enabled => { void change(enabled) }} />
-    </div>
-    {notice && <span role="status" className="dshDesktopSettingsHint">{notice}</span>}
-    {error && <span role="alert" className="dshDesktopSettingsError">{error}</span>}
-  </div>
-}
-
-/** A card's switch: selects the installation-shipped bundle in the Profile through the official manager. */
-function BundleSwitch({ context, t, name, label, row, loading, onChanged }: {
-  context: Context
-  t: Translate
-  name: string
-  label: string
-  row: BundleInfo | undefined
-  loading: boolean
-  onChanged(): void
-}) {
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState('')
-  const [notice, setNotice] = useState('')
-  const change = async (enabled: boolean): Promise<void> => {
-    if (busy || loading || !row) return
-    setBusy(true); setError(''); setNotice('')
-    try {
-      const result = await context.remote.pluginManager.setBundleEnabled(name, enabled)
-      if (!result.ok) throw new Error(result.error.message)
-      const change = result.value
-      if (change.application === 'failed' || change.application === 'cancelled') throw new Error(change.error?.diagnostic ?? t('无法更改插件状态。', 'Could not change the plugin state.'))
-      if (change.application === 'restart-required') setNotice(t('已保存，请重启后台服务以应用。', 'Saved. Restart the background service to apply.'))
-      if (change.application === 'overridden') setNotice(t('已保存，但当前配置覆盖了此选择。', 'Saved, but another configuration overrides this choice.'))
-    } catch (failure) { setError(failure instanceof Error ? failure.message : String(failure)) }
-    finally { setBusy(false); onChanged() }
-  }
-  return <div className="dshNextPluginDetail" data-next-bundle-switch={name}>
-    <div className="dshNextPluginActions">
-      <Switch label={label} checked={row?.enabled ?? false}
         disabled={loading || busy || !row || row.readOnlyReason !== undefined || row.error !== undefined}
         onChange={enabled => { void change(enabled) }} />
     </div>
