@@ -178,15 +178,15 @@ const { channels } = JSON.parse(readFileSync(join(root, 'upstream.json'), 'utf8'
 const runtimesDiffer = channels.next.runtimePackageVersion !== channels.beta.runtimePackageVersion
 const RUNTIME_PAIRS = runtimesDiffer ? [[channels.next.runtimePackageVersion, channels.beta.runtimePackageVersion]] : []
 
-// While the runtimes differ, Beta may also release on its own, so each variant owns the product version its
-// package.json declares and its package spec pins. The pair replaces only that whole version string in these
+// Beta may release on its own whichever runtimes the variants follow, so each variant owns the product version
+// its package.json declares and its package spec pins. The pair replaces only that whole version string in these
 // files, before the channel suffix mapping below, so fixture versions keep following the shared mapping.
 const PRODUCT_VERSION_FILES = new Set(['package.json', 'tests/package.spec.ts'])
 const productVersion = directory => JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')).version
-const PRODUCT_VERSIONS = runtimesDiffer ? { next: productVersion(nextRoot), beta: productVersion(betaRoot) } : undefined
+const PRODUCT_VERSIONS = { next: productVersion(nextRoot), beta: productVersion(betaRoot) }
 
 function withProductVersion(relativePath, text, from, to) {
-  if (PRODUCT_VERSIONS === undefined || !PRODUCT_VERSION_FILES.has(relativePath)) return text
+  if (!PRODUCT_VERSION_FILES.has(relativePath)) return text
   const escaped = PRODUCT_VERSIONS[from].replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')
   return text.replace(new RegExp(`(?<![\\w.-])${escaped}(?![\\w.-])`, 'gu'), PRODUCT_VERSIONS[to])
 }
@@ -406,7 +406,7 @@ export function verifyVariants() {
 
   const declared = runtimesDiffer
     ? `; Beta follows upstream ${channels.beta.runtimePackageVersion} and Next ${channels.next.runtimePackageVersion}, so their product versions (${PRODUCT_VERSIONS.beta} and ${PRODUCT_VERSIONS.next}), upstream-family pins and optional bundles, ${UPSTREAM_FAMILY_FILES.join(', ')}, the files below ${UPSTREAM_FAMILY_DIRECTORIES.join(' and ')} and Next-lead lines differ`
-    : ''
+    : `; Beta and Next keep their own product versions, ${PRODUCT_VERSIONS.beta} and ${PRODUCT_VERSIONS.next}`
   process.stdout.write(`verify-desktop-variants: ${String(allPaths.length)} files are aligned between Next and Beta${declared}\n`)
 }
 
