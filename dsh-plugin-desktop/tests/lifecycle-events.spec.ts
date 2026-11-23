@@ -282,6 +282,31 @@ describe('desktop lifecycle events', () => {
       eventName: 'startup.run.failed',
       details: { finalStage: 'renderer-startup', failureReason: 'renderer-timeout' },
     })
+
+    const mountTimeoutDir = tempUserData('dsh-lifecycle-mount-timeout-')
+    const mountTimeout = createDesktopLifecycleRecorder({
+      userDataDir: mountTimeoutDir,
+      appVersion: '2.0.1-test',
+      platform: 'linux',
+      arch: 'x64',
+      logger: createLogger(),
+      now: () => FIXED_NOW,
+      randomId: (() => {
+        const ids = ['mount-timeout-run', 'mount-timeout-op']
+        return () => ids.shift() ?? 'mount-timeout-extra'
+      })(),
+    })
+    mountTimeout.startStartup('renderer-startup')
+    mountTimeout.startRendererBoot()
+    mountTimeout.finishRendererBoot({ status: 'failed', plugins: [] }, 'renderer-mount-timeout')
+    mountTimeout.failStartup('renderer-startup', 'renderer-mount-timeout')
+    expect(readEvents(mountTimeoutDir).find(event => event.eventName === 'renderer.boot.timeout')).toMatchObject({
+      details: { rendererStatus: 'timeout', failureReason: 'renderer-mount-timeout', pluginCount: 0, pluginIds: [] },
+    })
+    expect(readEvents(mountTimeoutDir).at(-1)).toMatchObject({
+      eventName: 'startup.run.failed',
+      details: { finalStage: 'renderer-startup', failureReason: 'renderer-mount-timeout' },
+    })
   })
 
   it('replaces stale run evidence and keeps current evidence within byte caps', () => {

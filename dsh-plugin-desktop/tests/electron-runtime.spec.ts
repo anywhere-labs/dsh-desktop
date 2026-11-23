@@ -1177,6 +1177,72 @@ describe('Electron desktop runtime', () => {
     await release()
   })
 
+  it('commits healthy when the report arrives before the deadline and native mount lands after it', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    let finishLoad!: () => void
+    electron.loadURL.mockImplementationOnce(() => new Promise<void>((resolve) => { finishLoad = resolve }))
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const onRendererBoot = vi.fn(() => true)
+    const commitHealthy = vi.fn(async () => {})
+    const runtime = new ElectronDesktopRuntime(async () => {}, onRendererBoot)
+    const release = runtime.schedule(spec)
+    const rendererBoot = runtime.beginRendererBootMonitoring({ commitHealthy }, 100)
+    const mounted = runtime.mountScheduled()
+    await vi.advanceTimersByTimeAsync(50)
+    expect(electron.loadURL).toHaveBeenCalledOnce()
+
+    runtime.reportRendererBoot({ status: 'healthy' })
+    await vi.advanceTimersByTimeAsync(100)
+    expect(commitHealthy).not.toHaveBeenCalled()
+    finishLoad()
+
+    await mounted
+    await expect(rendererBoot).resolves.toEqual({ report: { status: 'healthy' } })
+    expect(runtime.rendererBootFailureReason).toBeUndefined()
+    expect(commitHealthy).toHaveBeenCalledOnce()
+    expect(onRendererBoot).toHaveBeenCalledWith({ status: 'healthy' })
+    await release()
+  })
+
+  it('reports a mount timeout when healthy was reported but native mount never lands in the grace window', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
+    let finishLoad!: () => void
+    electron.loadURL.mockImplementationOnce(() => new Promise<void>((resolve) => { finishLoad = resolve }))
+    const { ElectronDesktopRuntime } = await import('../src/electron-runtime.ts')
+    const onRendererBoot = vi.fn(() => true)
+    const commitHealthy = vi.fn(async () => {})
+    const runtime = new ElectronDesktopRuntime(async () => {}, onRendererBoot)
+    const release = runtime.schedule(spec)
+    const rendererBoot = runtime.beginRendererBootMonitoring({ commitHealthy }, 100)
+    const mounted = runtime.mountScheduled()
+    await vi.advanceTimersByTimeAsync(50)
+    expect(electron.loadURL).toHaveBeenCalledOnce()
+
+    runtime.reportRendererBoot({ status: 'healthy' })
+    await vi.advanceTimersByTimeAsync(200)
+
+    await expect(rendererBoot).resolves.toEqual({
+      report: {
+        status: 'failed',
+        plugins: [],
+        error: 'The Renderer reported boot health, but the native shell did not finish mounting within 100ms after the report.',
+      },
+      failureReason: 'renderer-mount-timeout',
+    })
+    expect(runtime.rendererBootFailureReason).toBe('renderer-mount-timeout')
+    expect(commitHealthy).not.toHaveBeenCalled()
+    expect(onRendererBoot).toHaveBeenCalledWith({
+      status: 'failed',
+      plugins: [],
+      error: 'The Renderer reported boot health, but the native shell did not finish mounting within 100ms after the report.',
+    })
+    finishLoad()
+    await mounted
+    await release()
+  })
+
   it('rejects healthy Renderer evidence when the process exits before native mount completes', async () => {
     vi.spyOn(process, 'platform', 'get').mockReturnValue('darwin')
     let finishLoad!: () => void

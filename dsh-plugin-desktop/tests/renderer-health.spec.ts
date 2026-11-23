@@ -120,6 +120,76 @@ describe('Desktop renderer health gate', () => {
     }
   })
 
+  it('commits healthy when the report arrives before the deadline and native mount arrives after it', async () => {
+    vi.useFakeTimers()
+    try {
+      const commitHealthy = vi.fn(async () => {})
+      const gate = new DesktopRendererHealthGate({ commitHealthy })
+      const result = gate.begin(25)
+
+      gate.report({ status: 'healthy' })
+      await vi.advanceTimersByTimeAsync(25)
+      expect(commitHealthy).not.toHaveBeenCalled()
+
+      gate.acceptNativeMount()
+
+      await expect(result).resolves.toEqual({ report: { status: 'healthy' } })
+      expect(commitHealthy).toHaveBeenCalledOnce()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('reports a mount timeout, not a report timeout, when healthy was reported but mount never arrives', async () => {
+    vi.useFakeTimers()
+    try {
+      const commitHealthy = vi.fn(async () => {})
+      const gate = new DesktopRendererHealthGate({ commitHealthy })
+      const result = gate.begin(25)
+
+      gate.report({ status: 'healthy' })
+      await vi.advanceTimersByTimeAsync(50)
+
+      await expect(result).resolves.toEqual({
+        report: {
+          status: 'failed',
+          plugins: [],
+          error: 'The Renderer reported boot health, but the native shell did not finish mounting within 25ms after the report.',
+        },
+        failureReason: 'renderer-mount-timeout',
+      })
+      expect(gate.failureReason).toBe('renderer-mount-timeout')
+      expect(commitHealthy).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('lets a renderer failure win while healthy evidence waits for mount past the report deadline', async () => {
+    vi.useFakeTimers()
+    try {
+      const commitHealthy = vi.fn(async () => {})
+      const gate = new DesktopRendererHealthGate({ commitHealthy })
+      const result = gate.begin(25)
+
+      gate.report({ status: 'healthy' })
+      await vi.advanceTimersByTimeAsync(25)
+      gate.fail('renderer-failed', 'renderer process gone while waiting for mount')
+
+      await expect(result).resolves.toEqual({
+        report: {
+          status: 'failed',
+          plugins: [],
+          error: 'renderer process gone while waiting for mount',
+        },
+        failureReason: 'renderer-failed',
+      })
+      expect(commitHealthy).not.toHaveBeenCalled()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('rejects the verdict when the durable healthy commit fails', async () => {
     const commitHealthy = vi.fn(async () => { throw new Error('disk full') })
     const gate = new DesktopRendererHealthGate({ commitHealthy })

@@ -1,7 +1,12 @@
 import type { RendererBootReport } from './renderer-boot-contract.ts'
 
-/** Failure class retained by startup recovery for one failed Renderer generation. */
-export type RendererHealthFailureReason = 'renderer-failed' | 'renderer-timeout'
+/**
+ * Failure class retained by startup recovery for one failed Renderer generation.
+ * `renderer-timeout` means the Renderer never reported boot health;
+ * `renderer-mount-timeout` means it did report healthy, but the native shell
+ * never finished mounting afterwards, so the two must not share one message.
+ */
+export type RendererHealthFailureReason = 'renderer-failed' | 'renderer-timeout' | 'renderer-mount-timeout'
 
 /** Terminal result after Renderer evidence and native readiness have been reconciled. */
 export type RendererHealthVerdict =
@@ -48,14 +53,36 @@ export class DesktopRendererHealthGate {
       this.resolveVerdict = resolve
       this.rejectVerdict = reject
     })
+    this.armReportDeadline(timeoutMs)
+    return verdict
+  }
+
+  /**
+   * Bound waiting for the Renderer report. Once healthy evidence has arrived,
+   * the report deadline no longer blames the Renderer: the same bound then
+   * applies once more to the native mount, so a healthy report that arrived
+   * in time is remembered and committed when the mount finally lands, while
+   * a mount that never lands still fails into recovery instead of hanging.
+   */
+  private armReportDeadline(timeoutMs: number): void {
     this.timer = setTimeout(() => {
+      if (this.phase !== 'monitoring') return
+      if (this.rendererHealthy) {
+        this.timer = setTimeout(() => {
+          this.fail(
+            'renderer-mount-timeout',
+            `The Renderer reported boot health, but the native shell did not finish mounting within ${String(timeoutMs)}ms after the report.`,
+          )
+        }, timeoutMs)
+        this.timer.unref()
+        return
+      }
       this.fail(
         'renderer-timeout',
         `The Renderer did not report boot health within ${String(timeoutMs)}ms.`,
       )
     }, timeoutMs)
     this.timer.unref()
-    return verdict
   }
 
   /** Accept one Loader report while this generation is pending. */

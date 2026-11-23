@@ -67,10 +67,10 @@ const EVENT_NAMES = new Set<DesktopLifecycleEventName>([
 const HOST_EXIT_DISPOSITIONS = new Set<DesktopLifecycleHostExitDisposition>(['expected', 'unexpected'])
 
 const RENDERER_STATUSES = new Set(['healthy', 'failed', 'timeout'])
-const FAILURE_REASONS = new Set(['startup-failed', 'renderer-failed', 'renderer-timeout'])
+const FAILURE_REASONS = new Set(['startup-failed', 'renderer-failed', 'renderer-timeout', 'renderer-mount-timeout'])
 
-export type DesktopLifecycleFailureReason = 'startup-failed' | 'renderer-failed' | 'renderer-timeout'
-export type DesktopLifecycleRendererFailureReason = 'renderer-failed' | 'renderer-timeout'
+export type DesktopLifecycleFailureReason = 'startup-failed' | 'renderer-failed' | 'renderer-timeout' | 'renderer-mount-timeout'
+export type DesktopLifecycleRendererFailureReason = 'renderer-failed' | 'renderer-timeout' | 'renderer-mount-timeout'
 export type DesktopLifecycleRendererStatus = 'healthy' | 'failed' | 'timeout'
 export type DesktopLifecycleHostExitDisposition = 'expected' | 'unexpected'
 export type DesktopLifecycleEventName =
@@ -326,7 +326,7 @@ export class DesktopLifecycleRecorder {
       this.record('renderer.boot.completed', { rendererStatus: 'healthy' }, durationMs)
       return
     }
-    const timeout = failureReason === 'renderer-timeout'
+    const timeout = failureReason === 'renderer-timeout' || failureReason === 'renderer-mount-timeout'
     this.record(timeout ? 'renderer.boot.timeout' : 'renderer.boot.failed', {
       rendererStatus: timeout ? 'timeout' : 'failed',
       failureReason,
@@ -338,7 +338,7 @@ export class DesktopLifecycleRecorder {
   failRendererBootIfPending(failureReason: DesktopLifecycleRendererFailureReason): void {
     if (this.rendererStartedAt === undefined || this.rendererSettled) return
     this.rendererSettled = true
-    const timeout = failureReason === 'renderer-timeout'
+    const timeout = failureReason === 'renderer-timeout' || failureReason === 'renderer-mount-timeout'
     this.record(timeout ? 'renderer.boot.timeout' : 'renderer.boot.failed', {
       rendererStatus: timeout ? 'timeout' : 'failed',
       failureReason,

@@ -340,7 +340,7 @@ function desktopLanHttpsPrivateKeyProtector(): DesktopLanHttpsPrivateKeyProtecto
 
 class RendererStartupFailure extends Error {
   constructor(
-    readonly reason: 'renderer-failed' | 'renderer-timeout',
+    readonly reason: 'renderer-failed' | 'renderer-timeout' | 'renderer-mount-timeout',
     report: Extract<RendererBootReport, { status: 'failed' }>,
   ) {
     super(report.error ?? `Renderer boot failed for ${String(report.plugins.length)} plugin(s)`)
@@ -349,9 +349,9 @@ class RendererStartupFailure extends Error {
 }
 
 function lifecycleRendererFailureReason(
-  reason: 'renderer-failed' | 'renderer-timeout' | undefined,
+  reason: 'renderer-failed' | 'renderer-timeout' | 'renderer-mount-timeout' | undefined,
 ): DesktopLifecycleRendererFailureReason {
-  return reason === 'renderer-timeout' ? 'renderer-timeout' : 'renderer-failed'
+  return reason === undefined ? 'renderer-failed' : reason
 }
 
 function lifecycleStartupFailureReason(
