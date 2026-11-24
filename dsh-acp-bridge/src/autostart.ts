@@ -24,6 +24,8 @@ export interface DesktopLaunch {
   readonly args: readonly string[]
   /** `open` exits once LaunchServices started the app; a directly started app is not waited for. */
   readonly waitForExit: boolean
+  readonly environment?: NodeJS.ProcessEnv
+  readonly cwd?: string
 }
 
 /** The `.app` bundle whose main executable is `executable` (`…/Name.app/Contents/MacOS/Name`). */
@@ -69,13 +71,15 @@ export type Spawn = (command: string, args: readonly string[], options: SpawnOpt
  * Start the app. Resolves once it was handed to the system; DSH is not ready yet.
  * @throws when the app cannot be started.
  */
-export function startDesktop(launch: DesktopLaunch, options: { spawn?: Spawn, env?: NodeJS.ProcessEnv } = {}): Promise<void> {
+export function startDesktop(launch: DesktopLaunch, options: { spawn?: Spawn, env?: NodeJS.ProcessEnv } = {}): Promise<ChildProcess> {
   const spawn = options.spawn ?? nodeSpawn
-  return new Promise<void>((resolve, reject) => {
+  return new Promise<ChildProcess>((resolve, reject) => {
     let child: ChildProcess
     try {
       child = spawn(launch.command, launch.args, {
-        detached: !launch.waitForExit, stdio: 'ignore', env: launchEnvironment(options.env ?? process.env),
+        detached: !launch.waitForExit, stdio: 'ignore', windowsHide: true,
+        env: { ...launchEnvironment(options.env ?? process.env), ...launch.environment },
+        ...(launch.cwd ? { cwd: launch.cwd } : {}),
       })
     } catch (error) {
       reject(error instanceof Error ? error : new Error(String(error)))
@@ -84,13 +88,13 @@ export function startDesktop(launch: DesktopLaunch, options: { spawn?: Spawn, en
     child.once('error', reject)
     if (launch.waitForExit) {
       child.once('exit', (code, signal) => {
-        if (code === 0) resolve()
+        if (code === 0) resolve(child)
         else reject(new Error(`${launch.command} 以 ${code ?? signal} 退出`))
       })
     } else {
       child.once('spawn', () => {
         child.unref()
-        resolve()
+        resolve(child)
       })
     }
   })

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { readFile, rm } from 'node:fs/promises'
+import { readFile, rm, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import test from 'node:test'
 import { methods } from '@agentclientprotocol/sdk'
 import { CONNECTIONS_PATH, MANAGEMENT_PATH, type ConnectionState, type ManagementState } from '../../src/management-contract.js'
@@ -9,7 +10,7 @@ import { readRecords } from '../../src/endpoint.js'
 import { startHost } from '../fixtures/host.js'
 import { connect, until } from '../fixtures/client.js'
 
-test('management reads live status, repairs the launcher, and unmounts with the plugin', { timeout: 60_000 }, async () => {
+test('management reads live status, persists settings, repairs the launcher, and unmounts with the plugin', { timeout: 60_000 }, async () => {
   const host = await startHost()
   try {
     const handler = host.ctx.connection.createSharedFetchHandler('/api')
@@ -26,13 +27,23 @@ test('management reads live status, repairs the launcher, and unmounts with the 
     const [record] = await readRecords(host.acpHome)
     assert.ok(record)
     assert.equal(JSON.stringify(state).includes(record.record.token), false)
-    const written = await readFile(launcherPath(host.acpHome), 'utf8')
+    response = await request({ action: 'save', settings: { enabled: false, mode: 'desktop', timeoutSeconds: 25, profile: '' } })
+    assert.equal(response.status, 200)
+    assert.equal(JSON.parse(await readFile(join(host.acpHome, 'startup.json'), 'utf8')).enabled, false)
+    response = await request({ action: 'save', settings: { enabled: true, mode: 'cli', timeoutSeconds: 25, profile: 'desktop' } })
+    assert.equal(response.status, 400)
+    assert.equal(JSON.parse(await readFile(join(host.acpHome, 'startup.json'), 'utf8')).enabled, false)
     await rm(launcherPath(host.acpHome))
     assert.equal((await (await request()).json() as ManagementState).checks[0]?.ok, false)
     response = await request({ action: 'repair' })
     assert.equal(response.status, 200)
-    assert.equal(await readFile(launcherPath(host.acpHome), 'utf8'), written)
-    assert.equal((await request({ action: 'save' })).status, 400, 'repair is the only action')
+    assert.match(await readFile(launcherPath(host.acpHome), 'utf8'), /--home/u)
+    await writeFile(join(host.acpHome, 'startup.json'), '{broken')
+    const damaged = await (await request()).json() as ManagementState
+    assert.equal(damaged.settings.enabled, false)
+    assert.ok(damaged.checks.some(check => check.label === 'Startup settings' && !check.ok))
+    response = await request({ action: 'save', settings: { enabled: false, mode: 'desktop', timeoutSeconds: 30, profile: '' } })
+    assert.equal(response.status, 200, 'the panel can repair damaged settings')
     await host.unload()
     assert.equal((await request()).status, 404)
   } finally { await host.close() }

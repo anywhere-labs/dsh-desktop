@@ -82,7 +82,7 @@ await dsh.close()
 | `endpoints/<实例 ID>.json` | `{version: 1, protocol: "meshcall", service, instanceId, pid, startedAt, endpoint, token, bridgeVersion, runtimeVersion?, launcher?}`，权限 0600，原子替换写入。`launcher` 是这个实例的启动脚本运行的 `{runtime, electron, script}`，供接手启动脚本时使用 |
 | `sockets/<ID 前 16 位>.sock` | Unix 套接字，目录 0700、套接字 0600。路径超过 100 字节（`sockaddr_un` 的上限）时，改为在系统临时目录下用 `mkdtemp` 新建一个 0700 目录（名字以 `aa-dsh-acp-` 开头），卸载时连同目录删除 |
 | `bin/dsh-acp`、`bin/dsh-acp.cmd` | 启动脚本，用 DSH 进程的 `process.execPath` 运行本包的 `lib/stdio.js`。DSH 运行在 Electron 上、且自身以 `ELECTRON_RUN_AS_NODE=1` 运行时（说明这个 Electron 允许 Node 模式），脚本同样设置这个变量；其他 Electron 宿主改用 `PATH` 里的 `node`，避免拉起第二个应用。`--version` 只输出一行插件版本，不连接 DSH，客户端可以照 ACP Agent 的惯例用它读版本 |
-| `bin/dsh-acp.json` | 启动描述 `{version: 1, command, args, env}`：启动脚本运行的程序、参数（`lib/stdio.js`）和要加的环境变量。不经 shell 启动进程的程序（例如在 Windows 上运行不了 `.cmd` 的程序）按它直接启动，自己的参数接在 `args` 后面。和启动脚本一起写入、保留、交接和删除；版本 1 之内只增加字段 |
+| `bin/dsh-acp.json` | 启动描述 `{version: 1, command, args, env}`：启动脚本运行的程序、参数（`lib/stdio.js`，以及带 ACP 目录的 `--home`）和要加的环境变量（包括 `DSH_HOME`）。不经 shell 启动进程的程序（例如在 Windows 上运行不了 `.cmd` 的程序）按它直接启动，自己的参数接在 `args` 后面。和启动脚本一起写入、保留、交接和删除；版本 1 之内只增加字段 |
 
 - 插件使用的目录如果是符号链接、不是目录或属于其他用户，插件拒绝启动，不会跟随链接或修改其权限。
 - 每个加载了插件的 DSH 进程各写一条记录；卸载插件时删除自己的记录和套接字。插件启动时删除进程已退出的记录，客户端也从不选择这样的记录。
@@ -94,11 +94,11 @@ await dsh.close()
 
 ### 自动启动 DSH Desktop
 
-`lib/stdio.js` 找不到任何正在运行的实例（`no-instance`），且没有使用 `--instance`、`--check` 或 `--no-start` 时，启动写下它的 DSH Desktop，再等插件就绪：
+`lib/stdio.js` 找不到任何正在运行的实例（`no-instance`），且没有使用 `--instance`、`--check` 或 `--no-start` 时，选择已登记的默认应用，在启动锁内检查应用进程；只有没有 DSH 运行时才启动，再等插件就绪：
 
-- 只有运行在 Electron 上的启动脚本（由 DSH Desktop 写下）才启动应用；运行在 Node.js 上的（由 DSH 命令行写下）照旧报错。
-- macOS 经 LaunchServices 启动：`open -n -g <应用包> --args --next-background`。作为客户端的子进程启动时，应用会把客户端当作 responsible process，本地网络访问会失效（anywhere-labs/deepseek-harness-desktop#1515）。`-n` 让已经运行的实例也收到这个参数。
-- Windows 和 Linux 以分离方式直接启动可执行文件，参数同样是 `--next-background`；环境变量去掉 `ELECTRON_RUN_AS_NODE`、`ELECTRON_NO_ATTACH_CONSOLE` 和 `NODE_OPTIONS`，应用按自己的方式启动。
+- 已登记应用提供自己的程序路径和数据目录，不依赖执行启动脚本的运行时。没有应用登记时保留旧版 Electron 启动脚本的行为。
+- macOS 经 LaunchServices 启动 Next/Beta：`open -n -g <应用包> --env DSH_HOME=<数据目录> --args --next-background`。官方应用不加 `-n` 和 `--args --next-background`。作为客户端的子进程启动时，应用会把客户端当作 responsible process，本地网络访问会失效（anywhere-labs/deepseek-harness-desktop#1515）。`-n` 让已经运行的实例也收到这个参数。
+- Windows 和 Linux 以分离方式直接启动可执行文件，仅 Next/Beta 使用 `--next-background` 参数；环境变量去掉 `ELECTRON_RUN_AS_NODE`、`ELECTRON_NO_ATTACH_CONSOLE` 和 `NODE_OPTIONS`，应用按自己的方式启动。
 - DSH Desktop（Next 和 Beta）带 `--next-background` 启动时照常启动 Host，但只显示托盘图标、不打开窗口；托盘不可用时仍然打开窗口。已经运行的实例收到带这个参数的第二次启动时，不聚焦窗口。这个参数不会带进之后的重启。较早的版本会忽略它并打开窗口。
 - 随后每 0.5 秒连接一次，遇到 `DshAcpError`（还没有实例或暂时连不上）就继续等，最多等 `--start-timeout` 秒（默认 90；DSH Desktop 的 Host 启动上限默认 60 秒）。等到超时说明插件没有加载：DSH 当前的 Profile 没有启用插件，或者 DSH 停在首次设置、恢复或升级。
 
@@ -263,8 +263,18 @@ MCP 联调记录（2026-11-18）：在进程内的测试 DSH 里用 DSH 的 MCP 
 
 自动化检查和这些联调都没有覆盖：真实模型的回复、真实的 Zed 等编辑器、DSH Desktop 的 Electron 运行环境（包括装进 Profile 的插件挂载客户端声明的 MCP 服务器，以及启动脚本在真实系统上启动 DSH Desktop、它只显示托盘图标）、Windows 命名管道、同时运行多个 DSH，以及自动化检查所用的 0.2.2-rc.4、2026-11-17 联调所用的 0.2.2-rc.3 以外的 DSH 版本。
 
-## 管理面板
+## 管理面板与启动设置
 
-Web 客户端通过 `plugins.bundle.config` 注册插件详情页的控制面板，键为包名 `@agents-anywhere/dsh-acp-bridge`。不注册独立的设置分类。面板显示连接状态和启动脚本的诊断。面板没有自己的样式：小节标题、事实列表和状态文字沿用插件详情页（与「来源信息」「版本」相同），表单和控件是官方共享组件。构建时从已安装的官方包编译 `PluginManagerPage.module.css` 和设置表单的 `fields.module.css`，详情页样式只保留用到的类；新版本删掉其中某个类时构建会失败。`./client` 导出的 `node` 条件保留已有 Node API，`default` 指向 DSH 客户端模块加载器需要的浏览器工厂 `lib/panel.js`。面板使用 Connection 的仅 owner 可访问路由 `/api/agents-anywhere/acp`：GET 读取快照，POST 修复启动脚本。卸载插件会撤销路由和客户端贡献。快照不包含端点令牌或对话正文。
+Web 客户端通过 `plugins.bundle.config` 注册插件详情页的控制面板，键为包名 `@agents-anywhere/dsh-acp-bridge`。不再注册独立设置分类。面板提供全机默认应用、固定应用参数、自动启动开关和等待超时；保留的 CLI 设置按应用绑定。面板没有自己的样式：小节标题、事实列表和状态文字沿用插件详情页（与「来源信息」「版本」相同），表单和控件是官方共享组件。构建时从已安装的官方包编译 `PluginManagerPage.module.css` 和设置表单的 `fields.module.css`，详情页样式只保留用到的类；新版本删掉其中某个类时构建会失败。`./client` 导出的 `node` 条件保留已有 Node API，`default` 指向 DSH 客户端模块加载器需要的浏览器工厂 `lib/panel.js`。面板使用 Connection 的仅 owner 可访问路由 `/api/agents-anywhere/acp`：GET 读取快照，POST 保存或修复。卸载插件会撤销路由和客户端贡献。快照不包含端点令牌或对话正文。
 
-连接状态通过仅 owner 可访问的 `/api/agents-anywhere/acp/connections` 读取；`?watch=1` 返回 NDJSON 实时流。建立、初始化、断开连接，以及添加、关闭会话、会话跟随终止或标题变化时推送新快照；会话总数按 ID 去重，包含尚未发送首条消息的 ACP 会话。面板只显示总数；快照和复制的诊断信息里还有各个客户端和它们的会话。客户端名称和版本来自 ACP initialize 上报，缺失时不猜测。流每 20 秒发空行心跳，不轮询状态；客户端 45 秒未收到数据会中断并重连，断线后 2 秒重试并标记旧快照。慢读取方只保留一个排队快照及最新待发状态。关闭面板或卸载插件会释放读取器、订阅和计时器。手动刷新单独读取连接快照，不会覆盖请求期间收到的新推送。
+连接状态通过仅 owner 可访问的 `/api/agents-anywhere/acp/connections` 读取；`?watch=1` 返回 NDJSON 实时流。建立、初始化、断开连接，以及添加、关闭会话、会话跟随终止或标题变化时推送新快照；会话总数按 ID 去重，包含尚未发送首条消息的 ACP 会话。面板只显示总数；快照和复制的诊断信息里还有各个客户端和它们的会话。客户端名称和版本来自 ACP initialize 上报，缺失时不猜测。流每 20 秒发空行心跳，不轮询状态；客户端 45 秒未收到数据会中断并重连，断线后 2 秒重试并标记旧快照。慢读取方只保留一个排队快照及最新待发状态。关闭面板或卸载插件会释放读取器、订阅和计时器。手动刷新单独读取连接快照，不修改设置草稿，也不会覆盖请求期间收到的新推送。
+
+ACP 目录中的 `startup.json` 以 0600 权限原子替换，DSH 关闭后启动器仍可读取，同目录的启动器共享设置。损坏的设置会让启动器停止自动启动；面板显示错误并允许覆盖修复。命令行参数优先于保存设置。`startup.lock` 协调多个编辑器的启动请求，`applications.lock` 协调各应用同时登记。持有者已退出的锁会被回收；两秒后仍没有写明持有者的锁（进程在创建之后、写入之前被杀掉会留下这样的锁）也会被回收。登记失败只记日志，不影响端点发布。`last-start.json` 记录最近一次启动就绪结果。启动脚本携带自己的 ACP 目录和 DSH 目录，自定义目录不再依赖编辑器额外传参。
+
+端点版本 1 新增可选的 `profileDirectory`，launcher 元数据新增可选 `home` 和 `dshHome`，旧读取方忽略它们。新启动的 CLI 按规范化 Profile 目录匹配，避免误连启动期间出现的其他实例。CLI 入口从官方 Desktop 安装布局推导，面板不接受任意命令。初步校验只接受已声明 Web 和 ACP bundle 的已有 Web Profile，最终以实际端点就绪为准。不自动创建或迁移 Profile，也不接管桌面会话。后台 CLI 进程当前持续运行，生命周期监管与真实安装包冷启动验收仍为独立工作。
+
+### 应用路由
+
+端点契约 v1 新增可选 `application` 信息。`apps/<id>.json` 持久保存每个安装位置、数据目录、Profile 的身份；ID 由规范化的程序路径、数据目录和 Profile 路径计算。`applications.lock` 独立于 `startup.lock`，避免编辑器等待启动时阻塞插件登记。`startup.json.defaultApp` 保存全机默认应用，可选的 `applications[id]` 绑定 CLI 模式、Profile 和数据目录。不可用的登记被排除；停用插件且没有同身份实例时移除登记，退出 DSH 时保留。卸载时启动脚本也可交给已登记但未运行的应用。
+
+stdio 按默认应用、相同 Profile 目录、稳定身份排序；`--app` 严格限定目标。公开 `connectDsh` 为兼容保留原来的最新实例优先默认行为，新增可选 `application` 和 `strictApplication`。启动锁内再次检查端点并按已登记的程序路径检查系统进程；应用已运行但插件未就绪时只等待。macOS 官方应用不使用 `-n` 或 Next 参数，数据目录通过 `open --env` 显式传递。不扫描未登记的安装。真实安装包的焦点行为仍须图形验收。

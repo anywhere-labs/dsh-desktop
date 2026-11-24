@@ -14,6 +14,10 @@ test('the launch description lets programs that cannot run the script start the 
     { version: 1, command: 'C:\\Program Files\\DSH NEXT\\DSH NEXT.exe', args: ['C:\\p\\lib\\stdio.js'], env: { ELECTRON_RUN_AS_NODE: '1' } })
   assert.deepEqual(launchInfo({ runtime: 'node', electron: false, script: '/p/lib/stdio.js' }),
     { version: 1, command: 'node', args: ['/p/lib/stdio.js'], env: {} })
+  // What the launcher passes on: its ACP directory and the data directory of the app it belongs to.
+  const runtime = '/Applications/DSH NEXT.app/Contents/MacOS/DSH NEXT'
+  assert.deepEqual(launchInfo({ runtime, electron: true, script: '/p/lib/stdio.js', home: '/h/acp', dshHome: '/h/.dsh' }),
+    { version: 1, command: runtime, args: ['/p/lib/stdio.js', '--home', '/h/acp'], env: { DSH_HOME: '/h/.dsh', ELECTRON_RUN_AS_NODE: '1' } })
 })
 
 test('the launcher names a missing plugin or DSH instead of failing inside the runtime', { skip: process.platform === 'win32' }, () => {
@@ -81,4 +85,18 @@ test('a plugin that unloads hands its launcher to another running DSH serving th
     record('next', next),
     record('cli', { runtime: 'node', electron: false, script: '/c/lib/stdio.js' }),
   ], exists, 'darwin'), { action: 'write', target: next }, 'the newest DSH whose plugin and program still exist takes it over')
+})
+
+test('the launcher keeps custom ACP and DSH homes, including shell metacharacters', { skip: process.platform === 'win32' }, () => {
+  const directory = mkdtempSync(join(tmpdir(), 'dsh-acp-home-'))
+  try {
+    const script = join(directory, 'stdio.js')
+    const launcher = join(directory, 'launcher')
+    writeFileSync(script, 'process.stdout.write(JSON.stringify({ home: process.env.DSH_HOME, args: process.argv.slice(2) }))')
+    const home = join(directory, "my home ' $()"); const dshHome = join(directory, "DSH ' $HOME")
+    writeFileSync(launcher, launcherScript({ runtime: process.execPath, electron: false, script, home, dshHome }))
+    const result = spawnSync('/bin/sh', [launcher, '--check'], { encoding: 'utf8' })
+    assert.equal(result.status, 0, result.stderr)
+    assert.deepEqual(JSON.parse(result.stdout), { home: dshHome, args: ['--home', home, '--check'] })
+  } finally { rmSync(directory, { recursive: true, force: true }) }
 })

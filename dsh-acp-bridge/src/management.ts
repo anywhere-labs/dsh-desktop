@@ -1,29 +1,48 @@
 /** Panel routes use DSH's authenticated connection; no additional HTTP listener. */
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
-import { access } from 'node:fs/promises'
-import { basename } from 'node:path'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
+import { readFile } from 'node:fs/promises'
+import { basename, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { desktopLaunch } from './autostart.js'
 import type { AcpBridge } from './bridge.js'
-import { CONNECTIONS_PATH, MANAGEMENT_PATH, type ManagementState } from './management-contract.js'
+import { applications, defaultApplication } from './applications.js'
+import { desktopLaunch } from './autostart.js'
+import { bundledCli, exists, listProfiles, checkProfile } from './cli-launch.js'
+import { CONNECTIONS_PATH, DEFAULT_STARTUP, MANAGEMENT_PATH, type ManagementState } from './management-contract.js'
 import { launcherPath } from './paths.js'
-
-async function exists(path: string): Promise<boolean> { try { await access(path); return true } catch { return false } }
+import { parseStartup, readStartup, writeStartup } from './startup-settings.js'
 
 export async function managementState(bridge: AcpBridge, home: string): Promise<ManagementState> {
   const info = bridge.info()
+  const desktop = desktopLaunch(process.execPath, process.platform, Boolean(process.versions.electron))
+  const cli = bundledCli(process.execPath, process.platform)
   const launcher = launcherPath(home)
   const checks = await Promise.all([
     ['Launcher', launcher], ['Plugin', fileURLToPath(new URL('./stdio.js', import.meta.url))], ['Runtime', process.execPath],
   ].map(async ([label, path]) => ({ label: label!, ok: await exists(path!), detail: path! })))
+  let settings
+  try { settings = await readStartup(home) }
+  catch (error) {
+    settings = { ...DEFAULT_STARTUP, enabled: false }
+    checks.push({ label: 'Startup settings', ok: false, detail: error instanceof Error ? error.message : String(error) })
+  }
+  let lastStart: ManagementState['lastStart']
+  try {
+    const value = JSON.parse(await readFile(join(home, 'last-start.json'), 'utf8')) as Record<string, unknown>
+    if (typeof value.at === 'string' && typeof value.ok === 'boolean' && typeof value.message === 'string') lastStart = { at: value.at, ok: value.ok, message: value.message }
+  } catch { /* A new installation has no attempt yet. */ }
+  const apps = await applications(home)
+  const selectedApp = defaultApplication(apps, settings.defaultApp)
   const live = bridge.connectionState()
-  return { live, ready: live.ready, connections: live.connections, sessions: live.sessions, bridgeVersion: info.bridgeVersion,
-    ...(info.runtimeVersion ? { runtimeVersion: info.runtimeVersion } : {}), profile: basename(process.cwd()),
-    host: desktopLaunch(process.execPath, process.platform, Boolean(process.versions.electron))?.name ?? 'DSH CLI', launcher, checks }
+  return { applications: apps, ...(selectedApp ? { defaultApp: selectedApp.id } : {}), live, ready: live.ready, connections: live.connections, sessions: live.sessions, bridgeVersion: info.bridgeVersion,
+    ...(info.runtimeVersion ? { runtimeVersion: info.runtimeVersion } : {}), profile: basename(process.cwd()), host: desktop?.name ?? 'DSH CLI', launcher,
+    settings, desktopAvailable: Boolean(desktop),
+    cliAvailable: Boolean(process.versions.electron && cli && await exists(cli)), profiles: await listProfiles(resolveDshHome()), checks,
+    ...(lastStart ? { lastStart } : {}) }
 }
 export function installManagement(ctx: Context, bridge: AcpBridge, home: string): void {
-  let operations: Promise<unknown> = Promise.resolve()
+  let saves: Promise<unknown> = Promise.resolve()
   ctx.inject(['connection'], inner => {
     const streams = new Set<() => void>()
     inner.effect(() => () => { for (const close of streams) close() }, 'ACP status streams')
@@ -72,12 +91,39 @@ export function installManagement(ctx: Context, bridge: AcpBridge, home: string)
         const headers = { 'cache-control': 'no-store' }
         try {
           if (request.method === 'POST') {
-            const body = await request.json() as { action?: unknown }
-            const operation = operations.then(async () => {
-              if (body.action !== 'repair') throw new Error('Unknown management action')
-              await bridge.repairLauncher()
+            const body = await request.json() as { action?: unknown; settings?: unknown }
+            const operation = saves.then(async () => {
+              if (body.action === 'repair') await bridge.repairLauncher()
+              else if (body.action === 'save') {
+                const settings = parseStartup(body.settings)
+                const state = await managementState(bridge, home)
+                if (settings.defaultApp && !state.applications?.some(app => app.id === settings.defaultApp)) {
+                  if (settings.enabled) throw new Error('Selected application is no longer available; refresh the panel')
+                  delete settings.defaultApp
+                }
+                if (settings.enabled && settings.mode === 'desktop' && !settings.defaultApp && !state.desktopAvailable) throw new Error('No Desktop executable is available')
+                if (settings.mode === 'cli') {
+                  const app = state.applications?.find(app => app.id === (settings.defaultApp ?? state.defaultApp))
+                  if (!app) throw new Error('Select the application for the saved CLI settings')
+                  settings.applications = { ...settings.applications,
+                    [app.id]: settings.applications?.[app.id] ?? { mode: 'cli', profile: settings.profile, dshHome: app.dshHome } }
+                  settings.mode = 'desktop'; settings.profile = ''
+                }
+                if (settings.applications) {
+                  for (const [id, config] of Object.entries(settings.applications)) {
+                    const app = state.applications?.find(app => app.id === id)
+                    if (!app) { delete settings.applications[id]; continue }
+                    if (config.dshHome !== app.dshHome) throw new Error('Application data directory does not match its registration')
+                    if (config.mode === 'cli') {
+                      const check = await checkProfile(app.dshHome, config.profile)
+                      if (!check.valid) throw new Error(check.reason)
+                    }
+                  }
+                }
+                await writeStartup(home, settings)
+              } else throw new Error('Unknown management action')
             })
-            operations = operation.catch(() => {})
+            saves = operation.catch(() => {})
             await operation
           }
           return Response.json(await managementState(bridge, home), { headers })

@@ -23,7 +23,7 @@ export async function callManagement(body?: object, signal?: AbortSignal): Promi
   const value = await response.json().catch(() => undefined) as (ManagementState & { error?: string }) | undefined
   if (!response.ok) throw value?.error ? new Error(value.error) : new ManagementError('http', response.status)
   if (value?.error) throw new Error(value.error)
-  if (!value?.live || !Array.isArray(value.checks)) throw new ManagementError('invalid', response.status)
+  if (!value?.settings || !value.live || !Array.isArray(value.checks)) throw new ManagementError('invalid', response.status)
   return value
 }
 

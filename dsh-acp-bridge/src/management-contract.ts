@@ -16,7 +16,19 @@ export interface ConnectionState {
   sessions: number
   clients: ConnectionDetails[]
 }
+export interface StartupSettings {
+  enabled: boolean
+  defaultApp?: string
+  applications?: Record<string, { mode: 'desktop' | 'cli'; profile: string; dshHome: string }>
+  mode: 'desktop' | 'cli'
+  timeoutSeconds: number
+  profile: string
+}
+export const DEFAULT_STARTUP: StartupSettings = { enabled: true, mode: 'desktop', timeoutSeconds: 90, profile: '' }
+export interface ProfileCheck { name: string; valid: boolean; reason: string }
 export interface ManagementState {
+  applications?: import('./applications.js').Application[]
+  defaultApp?: string
   live: ConnectionState
   ready: boolean
   connections: number
@@ -26,5 +38,10 @@ export interface ManagementState {
   profile: string
   host: string
   launcher: string
+  settings: StartupSettings
+  desktopAvailable: boolean
+  cliAvailable: boolean
+  profiles: ProfileCheck[]
   checks: { label: string; ok: boolean; detail: string }[]
+  lastStart?: { at: string; ok: boolean; message: string }
 }

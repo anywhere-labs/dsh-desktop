@@ -69,6 +69,10 @@ export async function listInstances(options: FindOptions = {}): Promise<Endpoint
 export interface ConnectOptions extends FindOptions {
   /** An instance ID or a prefix of it. Without it, the newest instance that proves itself is used. */
   instance?: string
+  /** Restrict a background launch to the selected Profile directory. */
+  application?: import('./applications.js').Application
+  strictApplication?: boolean
+  profileDirectory?: string
   /** How long `hello` and `info` may take per instance, in milliseconds; 5000 by default. */
   timeoutMs?: number
   /** MeshCall peer ID, for diagnostics. */
@@ -155,8 +159,11 @@ function requireInfo(record: EndpointRecord, value: unknown): BridgeInfo {
  * or cannot prove itself. The token is sent only after the proof checks out.
  */
 export async function connectDsh(options: ConnectOptions = {}): Promise<DshConnection> {
-  const records = (await listInstances(options))
+  const { orderedInstances } = await import('./applications.js')
+  const candidates = await listInstances(options)
+  const records = (options.application ? orderedInstances(candidates, options.application, options.strictApplication) : candidates)
     .filter(record => options.instance === undefined || record.instanceId.startsWith(options.instance))
+    .filter(record => options.profileDirectory === undefined || record.profileDirectory === options.profileDirectory)
   if (!records.length) {
     throw new DshAcpError('no-instance', options.instance === undefined
       ? 'No running DSH has loaded @agents-anywhere/dsh-acp-bridge.'

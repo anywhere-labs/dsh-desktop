@@ -24,6 +24,8 @@ export interface LauncherTarget {
   electron: boolean
   /** Absolute path of the stdio bridge script. */
   script: string
+  home?: string
+  dshHome?: string
 }
 
 /**
@@ -40,7 +42,8 @@ export interface LaunchInfo {
 }
 
 export function launchInfo(target: LauncherTarget): LaunchInfo {
-  return { version: 1, command: target.runtime, args: [target.script], env: target.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {} }
+  return { version: 1, command: target.runtime, args: [target.script, ...(target.home ? ['--home', target.home] : [])],
+    env: { ...(target.dshHome ? { DSH_HOME: target.dshHome } : {}), ...(target.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}) } }
 }
 
 const PLUGIN = '@agents-anywhere/dsh-acp-bridge'
@@ -81,7 +84,8 @@ export function launcherScript(target: LauncherTarget, platform: NodeJS.Platform
       `if not exist ${batchQuote(target.script)} goto missing_plugin`,
       ...(checkRuntime ? [`if not exist ${batchQuote(target.runtime)} goto missing_runtime`] : []),
       ...(target.electron ? ['set ELECTRON_RUN_AS_NODE=1'] : []),
-      `${batchQuote(target.runtime)} ${batchQuote(target.script)} %*`,
+      ...(target.dshHome ? [`set ${batchQuote(`DSH_HOME=${target.dshHome}`)}`] : []),
+      `${batchQuote(target.runtime)} ${batchQuote(target.script)}${target.home ? ` --home ${batchQuote(target.home)}` : ''} %*`,
       'exit /b %ERRORLEVEL%',
       // cmd reads each line as it runs it, so the messages below are read as UTF-8.
       ':missing_plugin',
@@ -102,7 +106,7 @@ export function launcherScript(target: LauncherTarget, platform: NodeJS.Platform
     ...(checkRuntime
       ? [`if [ ! -x ${posixQuote(target.runtime)} ]; then printf '%s\\n' ${posixQuote(missingRuntime(target.runtime))} >&2; exit 1; fi`]
       : []),
-    `${target.electron ? 'ELECTRON_RUN_AS_NODE=1 ' : ''}exec ${posixQuote(target.runtime)} ${posixQuote(target.script)} "$@"`,
+    `${target.dshHome ? `DSH_HOME=${posixQuote(target.dshHome)} ` : ''}${target.electron ? 'ELECTRON_RUN_AS_NODE=1 ' : ''}exec ${posixQuote(target.runtime)} ${posixQuote(target.script)}${target.home ? ` --home ${posixQuote(target.home)}` : ''} "$@"`,
     '',
   ].join('\n')
 }
