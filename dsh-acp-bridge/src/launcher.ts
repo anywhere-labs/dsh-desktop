@@ -13,9 +13,9 @@
 import { randomUUID } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { chmod, mkdir, readFile, rename, rm, rmdir, writeFile } from 'node:fs/promises'
-import { dirname, join, posix, win32 } from 'node:path'
+import { basename, dirname, join, posix, win32 } from 'node:path'
 import type { EndpointRecord } from './endpoint.js'
-import { endpointsDirectory, launcherPath, socketsDirectory } from './paths.js'
+import { endpointsDirectory, launchInfoPath, launcherPath, socketsDirectory } from './paths.js'
 
 export interface LauncherTarget {
   /** Executable that runs JavaScript: Node.js, or Electron in Node mode. */
@@ -24,6 +24,23 @@ export interface LauncherTarget {
   electron: boolean
   /** Absolute path of the stdio bridge script. */
   script: string
+}
+
+/**
+ * `bin/dsh-acp.json`: what the launcher runs, for programs that start the bridge themselves. Windows programs
+ * that start processes without a shell cannot run `dsh-acp.cmd`; they run `command` with `args` (then their
+ * own arguments) and `env` added to their environment. It follows the launcher: written, kept, handed over
+ * and removed with it. Later versions only add fields.
+ */
+export interface LaunchInfo {
+  version: 1
+  command: string
+  args: string[]
+  env: Record<string, string>
+}
+
+export function launchInfo(target: LauncherTarget): LaunchInfo {
+  return { version: 1, command: target.runtime, args: [target.script], env: target.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {} }
 }
 
 const PLUGIN = '@agents-anywhere/dsh-acp-bridge'
@@ -90,19 +107,25 @@ export function launcherScript(target: LauncherTarget, platform: NodeJS.Platform
   ].join('\n')
 }
 
-/** Replace the launcher atomically; returns its path. */
-export async function writeLauncher(home: string, target: LauncherTarget, platform: NodeJS.Platform = process.platform): Promise<string> {
-  const path = launcherPath(home, platform)
-  await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-  const temporary = join(dirname(path), `.launcher.${randomUUID()}.tmp`)
+/** Replace a file atomically. */
+async function replaceFile(path: string, content: string, mode: number, platform: NodeJS.Platform): Promise<void> {
+  const temporary = join(dirname(path), `.${basename(path)}.${randomUUID()}.tmp`)
   try {
-    await writeFile(temporary, launcherScript(target, platform), { mode: 0o700, flag: 'wx' })
-    if (platform !== 'win32') await chmod(temporary, 0o700)
+    await writeFile(temporary, content, { mode, flag: 'wx' })
+    if (platform !== 'win32') await chmod(temporary, mode)
     await rename(temporary, path)
   } catch (error) {
     await rm(temporary, { force: true }).catch(() => undefined)
     throw error
   }
+}
+
+/** Replace the launcher and its launch description atomically; returns the launcher's path. */
+export async function writeLauncher(home: string, target: LauncherTarget, platform: NodeJS.Platform = process.platform): Promise<string> {
+  const path = launcherPath(home, platform)
+  await mkdir(dirname(path), { recursive: true, mode: 0o700 })
+  await replaceFile(path, launcherScript(target, platform), 0o700, platform)
+  await replaceFile(launchInfoPath(home), `${JSON.stringify(launchInfo(target), null, 2)}\n`, 0o600, platform)
   return path
 }
 
@@ -139,6 +162,7 @@ export async function withdrawLauncher(home: string, own: LauncherTarget, others
   if (succession.action === 'write') await writeLauncher(home, succession.target, platform)
   if (succession.action === 'remove') {
     await rm(path, { force: true })
+    await rm(launchInfoPath(home), { force: true })
     // rmdir removes only empty directories: anything another instance keeps there stays, the home last.
     for (const directory of [dirname(path), endpointsDirectory(home), socketsDirectory(home), home]) {
       await rmdir(directory).catch(() => undefined)

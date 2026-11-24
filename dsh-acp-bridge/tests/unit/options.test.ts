@@ -1,7 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
+import type { SessionConfigOption } from '@agentclientprotocol/sdk'
 import type { ModelCatalog } from '@deepseek-ai/dsh-api-session-controller'
-import { carriedEffort, configOptions, findModel, switchValue } from '../../src/acp/options.js'
+import { carriedEffort, configOptions, findModel, modelValue, switchValue } from '../../src/acp/options.js'
 import { launcherScript } from '../../src/launcher.js'
 import { endpointProof, parseRecord, validProof } from '../../src/endpoint.js'
 import { homeSocket, pipeEndpoint, RPC_SERVICE } from '../../src/paths.js'
@@ -20,10 +21,16 @@ const catalog = {
   ],
 } as unknown as ModelCatalog
 
-test('model options group routable providers and keep provider/model values', () => {
+/** Every value a select option offers, groups flattened. */
+function values(option: SessionConfigOption | undefined): string[] {
+  if (option?.type !== 'select') return []
+  return option.options.flatMap(item => 'group' in item ? item.options.map(entry => entry.value) : [item.value])
+}
+
+test('model options group routable providers and use the official dsh-acp model values', () => {
   const options = configOptions({ catalog, model: { provider: 'deepseek', model: 'v4', reasoningEffort: 'high' } })
   const model = options.find(option => option.id === 'model')
-  assert.equal(model?.type === 'select' && model.currentValue, 'deepseek/v4')
+  assert.equal(model?.type === 'select' && model.currentValue, '["deepseek","v4"]', 'JSON.stringify([provider, model]), as the official dsh-acp sends')
   assert.deepEqual(model?.type === 'select' && model.options.map(group => 'group' in group ? group.group : ''), ['deepseek', 'gateway'], 'unroutable providers are hidden')
   const effort = options.find(option => option.id === 'reasoning_effort')
   assert.equal(effort?.category, 'thought_level')
@@ -33,8 +40,9 @@ test('model options group routable providers and keep provider/model values', ()
   assert.equal(lite?.type === 'select' && lite.currentValue, 'default')
   const gateway = configOptions({ catalog, model: { provider: 'gateway', model: 'org/model' } })
   assert.equal(gateway.some(option => option.id === 'reasoning_effort'), false, 'models without efforts have no effort option')
+  assert.ok(values(gateway.find(option => option.id === 'model')).includes('["gateway","org/model"]'), 'a slash in a model ID stays unambiguous')
   const unknown = configOptions({ catalog, model: { provider: 'other', model: 'x' } }).find(option => option.id === 'model')
-  assert.equal(unknown?.type === 'select' && JSON.stringify(unknown.options).includes('other/x'), true, 'the current model stays selectable')
+  assert.ok(values(unknown).includes('["other","x"]'), 'the current model stays selectable')
 })
 
 test('permission, preset, plan and team options', () => {
@@ -59,9 +67,12 @@ test('permission, preset, plan and team options', () => {
 })
 
 test('model values and effort carry-over', () => {
-  assert.deepEqual(findModel(catalog, 'gateway/org/model')?.entry.id, 'org/model', 'only the first slash separates the provider')
+  assert.equal(modelValue({ provider: 'gateway', model: 'org/model' }), '["gateway","org/model"]')
+  assert.deepEqual(findModel(catalog, '["gateway","org/model"]')?.entry.id, 'org/model')
+  assert.deepEqual(findModel(catalog, 'gateway/org/model')?.entry.id, 'org/model', 'the earlier provider/model form is still accepted')
   assert.equal(findModel(catalog, 'deepseek/missing'), undefined)
   assert.equal(findModel(catalog, '/v4'), undefined)
+  for (const value of ['["deepseek"]', '["deepseek","v4","x"]', '[1,2]', '["","v4"]', '[not json']) assert.equal(findModel(catalog, value), undefined, value)
   const v4 = findModel(catalog, 'deepseek/v4')!.entry
   assert.equal(carriedEffort(v4, 'high'), 'high')
   assert.equal(carriedEffort(v4, 'max'), 'low', 'an unsupported effort falls back to the default')

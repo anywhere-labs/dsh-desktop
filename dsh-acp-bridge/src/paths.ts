@@ -27,6 +27,11 @@ export function launcherPath(home: string, platform: NodeJS.Platform = process.p
   return join(home, 'bin', platform === 'win32' ? 'dsh-acp.cmd' : 'dsh-acp')
 }
 
+/** What the launcher runs, as JSON, for programs that start the bridge without a shell. */
+export function launchInfoPath(home: string): string {
+  return join(home, 'bin', 'dsh-acp.json')
+}
+
 export function endpointName(instanceId: string): string {
   return instanceId.replaceAll('-', '').slice(0, 16)
 }

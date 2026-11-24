@@ -23,6 +23,8 @@ These capabilities are exposed through ACP. How tool cards, forms, plans and men
 - Type `/` for the commands DSH registers and the skills that can be invoked directly.
 - Send text, images (PNG, JPEG, WebP, GIF), file links, the selections a client attaches and other files, which are uploaded to DSH like files added in DSH Desktop, and cancel a running task at any time.
 - Keep sending while a reply is still running: as when Enter is pressed in DSH Desktop during a reply, each further message waits in the DSH queue and runs in a turn of its own once the one before it ends.
+- Clients that support the steering extension (`_session/steering`, which the Codex and Claude ACP agents use too) can steer a running turn: as with steering in DSH Desktop, the model receives the input at the turn's next step. When no turn is running, the client sends it as a normal prompt instead.
+- The client is told when each turn starts and ends, including turns that DSH Desktop, other clients or subagent results start, so it knows when they end.
 - When the Agent hands work to subagents, the client's request stays open until the subagents finish and the Agent has replied to their results, as with the official DSH ACP agent.
 - Delete a session from the client's history: DSH archives it, and it can be restored in DSH. Clients that support forking can continue a copy of a session, which DSH lists as a session of its own.
 - MCP servers configured in the client (stdio and HTTP) are mounted for the session, and their tools belong to that session alone, as with the official DSH ACP agent. MCP servers configured in DSH itself work in the client's sessions too.
@@ -91,7 +93,7 @@ The launcher can be run directly in a terminal:
 ~/.agents-anywhere/dsh-acp/bin/dsh-acp --check
 ```
 
-`--check` connects to the running DSH (it never starts one) and prints the DSH version, the plugin version and whether approvals and questions are connected. `--list` lists the DSH processes it can connect to; with several running, it connects to the most recently started one, and `--instance <instance ID>` picks another. With the environment variable `DSH_ACP_DEBUG=1`, connection diagnostics are written to standard error.
+`--check` connects to the running DSH (it never starts one) and prints the DSH version, the plugin version and whether approvals and questions are connected. `--list` lists the DSH processes it can connect to; with several running, it connects to the most recently started one, and `--instance <instance ID>` picks another. `--version` prints only the plugin version. With the environment variable `DSH_ACP_DEBUG=1`, connection diagnostics are written to standard error.
 
 The plugin's own log lines are in the DSH log and start with `acp-bridge`.
 
@@ -132,6 +134,8 @@ const acp = client({ name: 'my-tool' }).connect(dsh.openAcpStream())
 ```
 
 This API connects to a running DSH; it does not start Desktop automatically. The contract, its compatibility rules and the whole client API are in the [technical notes](TECHNICAL.md#local-rpc).
+
+Programs that want the automatic start but cannot run the launcher (on Windows, for example, those that start processes without a shell and so cannot run a `.cmd`) can read `dsh-acp.json` beside the launcher: it names the program the launcher runs, its arguments and its environment variables, and starting it that way works as running the launcher does. The format is in the [technical notes](TECHNICAL.md#endpoint-records-and-the-launcher).
 
 ## Development
 

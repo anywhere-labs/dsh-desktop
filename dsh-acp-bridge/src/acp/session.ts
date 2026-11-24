@@ -16,7 +16,8 @@ import { randomUUID } from 'node:crypto'
 import { realpath } from 'node:fs/promises'
 import {
   addUsage, expandStreamRecords, planEntries, PromptError, promptParts, questionChoices, questionForm, record, slashCommand, stopReason, textContent,
-  toolCallUpdate, toolResultUpdate, parseArguments, type ChoiceQuestion, type Fields, type PromptInput, type QuestionAnswer, type QuestionForm,
+  toolCallUpdate, toolResultUpdate, turnBoundary, turnEnd, parseArguments, type ChoiceQuestion, type Fields, type PromptInput, type QuestionAnswer,
+  type QuestionForm,
 } from './convert.js'
 import { HostError, hostMessage, type DshHost } from './host.js'
 import type { ApprovalDecision, ApprovalRequest, InteractionHub, InteractionTarget, QuestionDecision, QuestionRequest } from './interactions.js'
@@ -95,10 +96,21 @@ const CARD_WAIT_MS = 2_000
 const MAX_BACKLOG = 20_000
 /** A queued message DSH will not take any more: the turn ahead of it stopped, and DSH waits for new input. */
 const STALLED = '上一轮没有正常结束，DSH 不会接着处理排队的消息，这条消息没有发送，请重新发送。'
+/** Steering input remembered so DSH's record of it is not echoed back; DSH may discard steering it never runs. */
+const MAX_STEERED = 64
 
 function invalid(message: string): RequestError { return RequestError.invalidParams(undefined, message) }
 function internal(message: string): RequestError { return RequestError.internalError(undefined, message) }
 function closedError(): RequestError { return invalid('这个会话已关闭。') }
+
+/** DSH did not take a message: input it cannot take is the client's to change, anything else is a DSH failure. */
+function refused(error: unknown): RequestError {
+  const message = hostMessage(error)
+  const code = record(error).code
+  if (code === 'gateway/bad-request') return invalid(message)
+  if (code === 'session/attachment-invalid') return invalid(`DSH 没有接收这条消息：${message}`)
+  return internal(`DSH 没有接收这条消息：${message}`)
+}
 
 /** Compaction rewrites history with `replace` surface operations; those are not conversation. */
 function replaced(event: SessionWireEvent): boolean {
@@ -132,6 +144,13 @@ export class AcpSession implements InteractionTarget {
   private readonly seenWaiters = new Set<{ seq: number, resolve: () => void }>()
   private inbox: Inbox | undefined
   private turn: number | undefined
+  /**
+   * The boundary of the turn that just started, held until the turn's first update: DSH opens a turn before
+   * it takes the queued message, and the response to this client's earlier prompt must go out first.
+   */
+  private turnStart: SessionUpdate | undefined
+  /** Request IDs of this client's steering, whose `user/message` it shows already. */
+  private readonly steered = new Set<string>()
   private attempt: Attempt | undefined
   private readonly streamed = new Map<string, { text: boolean, thought: boolean }>()
   private delta: { kind: 'agent_message_chunk' | 'agent_thought_chunk', text: string } | undefined
@@ -332,6 +351,7 @@ export class AcpSession implements InteractionTarget {
           this.turn = data.turn
           // A prompt that waits for quiet takes in every root turn until then; subagent results start them.
           if (mode === 'live') for (const inflight of this.inflights) if (inflight.settling) inflight.turn = data.turn
+          if (mode === 'live') this.turnStart = turnBoundary({ sessionId: this.id, phase: 'started', turn: data.turn, seq: event.seq })
         }
         // DSH starts every turn without a todo list.
         if (mode === 'live') this.showPlan(null)
@@ -360,7 +380,7 @@ export class AcpSession implements InteractionTarget {
         }
         break
       case 'turn/end':
-        if (mode === 'live') this.turnEnded(data)
+        if (mode === 'live') this.turnEnded(data, event.seq)
         break
     }
     if (mode === 'live' && CONFIG_EVENTS.test(event.type)) this.scheduleRefresh()
@@ -379,6 +399,8 @@ export class AcpSession implements InteractionTarget {
       if (!inflight.claimed) this.claim(inflight)
       return
     }
+    // This client's own steering: it shows the input already, other clients see it below.
+    if (mode === 'live' && typeof source.rpcId === 'string' && this.steered.delete(source.rpcId)) return
     // Messages typed in DSH Desktop, AA or another ACP client; the client shows its own already.
     if (mode === 'fold' || source.kind !== 'user' || replaced(event)) return
     const blocks = Array.isArray(data.content) ? data.content : []
@@ -519,7 +541,9 @@ export class AcpSession implements InteractionTarget {
     this.send({ sessionUpdate: 'plan', entries })
   }
 
-  private turnEnded(data: Fields): void {
+  private turnEnded(data: Fields, seq: number): void {
+    // Before any response the end settles: the turn's updates, then its boundary, then the answer.
+    if (typeof data.turn === 'number') this.send(turnBoundary({ sessionId: this.id, phase: 'ended', turn: data.turn, seq, ...turnEnd(data.reason) }))
     this.questionNoticeSent = false
     this.refreshCommands()
     for (const inflight of [...this.inflights]) {
@@ -663,9 +687,12 @@ export class AcpSession implements InteractionTarget {
       this.log.warn('acp-bridge: an ACP client stopped reading updates; closing its connection')
       this.client.overloaded()
     }
+    // A started turn's boundary leaves with its first update.
+    const start = this.turnStart
+    this.turnStart = undefined
     const next = this.output.then(async () => {
       if (this.closed) return
-      for (const update of await build()) {
+      for (const update of start ? [start, ...await build()] : await build()) {
         if (this.closed) return
         await this.client.update(this.id, update)
       }
@@ -727,10 +754,10 @@ export class AcpSession implements InteractionTarget {
 
   /**
    * Upload the files the editor attached into the session's Agent, which hands
-   * back the receipts DSH prompts carry. Undefined when the prompt was
-   * cancelled meanwhile.
+   * back the receipts DSH prompts carry. Undefined when `signal` stopped the
+   * message meanwhile.
    */
-  private async upload(parts: readonly PromptInput[], inflight: Inflight): Promise<PromptContentPart[] | undefined> {
+  private async upload(parts: readonly PromptInput[], signal: AbortSignal): Promise<PromptContentPart[] | undefined> {
     if (!parts.some(part => part.type === 'upload')) return parts as PromptContentPart[]
     const uploads = this.host.ctx.get('fileUploads')
     if (!uploads) throw invalid('这个 DSH 没有加载文件上传，不能附带文件。')
@@ -739,10 +766,10 @@ export class AcpSession implements InteractionTarget {
     for (const part of parts) {
       if (part.type !== 'upload') { content.push(part); continue }
       try {
-        const value = await uploads.upload(agent, { data: part.data, ...(part.name ? { name: part.name } : {}) }, inflight.abort.signal)
+        const value = await uploads.upload(agent, { data: part.data, ...(part.name ? { name: part.name } : {}) }, signal)
         content.push({ type: 'file', receiptId: value.receiptId })
       } catch (error) {
-        if (this.closed || inflight.cancelRequested) return undefined
+        if (this.closed || signal.aborted) return undefined
         throw invalid(`DSH 没有接收这个文件：${hostMessage(error)}`)
       }
     }
@@ -800,7 +827,7 @@ export class AcpSession implements InteractionTarget {
         await this.checkImages(parts, inflight.abort.signal)
         if (this.closed || inflight.cancelRequested) return stopped()
       }
-      const content = await this.upload(parts!, inflight)
+      const content = await this.upload(parts!, inflight.abort.signal)
       if (!content || this.closed || inflight.cancelRequested) return stopped()
       if (!await this.admit(inflight, content)) return stopped()
       if (inflight.cancelRequested) void this.stopTurn(inflight).catch(error => this.log.warn('acp-bridge: cancel failed', error))
@@ -827,18 +854,46 @@ export class AcpSession implements InteractionTarget {
         await this.host.controller.prompt({ requestId: inflight.requestId as SessionPromptRequest['requestId'],
           sessionId: this.dshId as SessionId, mode: 'queue', content: parts }, new AbortController().signal)
       } catch (error) {
-        const message = hostMessage(error)
-        const code = record(error).code
-        if (code === 'gateway/bad-request') throw invalid(message)
-        // An image or file DSH cannot take is the client's input to change, not a DSH failure.
-        if (code === 'session/attachment-invalid') throw invalid(`DSH 没有接收这条消息：${message}`)
-        throw internal(`DSH 没有接收这条消息：${message}`)
+        throw refused(error)
       }
       inflight.admitted = true
       return true
     })
     this.admissions = admitted.catch(() => undefined)
     return admitted
+  }
+
+  /** The Agent runs a turn, which takes steering at its next step. */
+  private running(): boolean {
+    return this.state === 'attached' && this.host.live(this.dshId)?.status === 'running'
+  }
+
+  /**
+   * `_session/steering`: add input to the turn that runs now, as 插话 does in DSH Desktop; DSH hands it to
+   * the model at its next step. With nothing running the client sends a normal prompt instead
+   * (`promptRequired`): steering never starts a turn, which would leave no prompt to answer for it.
+   */
+  async steer(blocks: readonly AcpContent[]): Promise<{ outcome: 'injected' | 'promptRequired' }> {
+    if (this.closed) throw closedError()
+    // The client's input is checked first, running or not.
+    const parts = this.parts(blocks)
+    if (!this.running()) return { outcome: 'promptRequired' }
+    const signal = this.interactions.signal
+    await this.checkImages(parts, signal)
+    const content = await this.upload(parts, signal)
+    if (!content || this.closed) throw closedError()
+    if (!this.running()) return { outcome: 'promptRequired' }
+    const requestId = randomUUID()
+    this.steered.add(requestId)
+    if (this.steered.size > MAX_STEERED) this.steered.delete(this.steered.values().next().value!)
+    try {
+      await this.host.controller.prompt({ requestId: requestId as SessionPromptRequest['requestId'], sessionId: this.dshId as SessionId,
+        mode: 'steer', content }, new AbortController().signal)
+    } catch (error) {
+      this.steered.delete(requestId)
+      throw refused(error)
+    }
+    return { outcome: 'injected' }
   }
 
   /** A registered DSH command runs directly; anything else (skills included) is a normal prompt. */

@@ -23,6 +23,8 @@
 - 输入 `/` 使用 DSH 注册的命令和可直接调用的技能。
 - 发送文字、图片（PNG、JPEG、WebP、GIF）、文件链接、客户端附带的选中内容和其他文件（和在 DSH Desktop 里添加的文件一样上传到 DSH）；随时取消正在执行的任务。
 - 回复还没结束也可以继续发：和在 DSH Desktop 里回复期间按回车一样，后发的消息在 DSH 队列里等待，前一条结束后各自单独执行一轮。
+- 支持插话扩展（`_session/steering`，Codex、Claude 的 ACP Agent 也用它）的客户端，可以在一轮进行中插话：和 DSH Desktop 的插话一样，内容在这一轮的下一步交给模型。没有在执行的一轮时，客户端会改为普通发送。
+- 每一轮开始和结束时都会通知客户端，包括 DSH Desktop、其他客户端或子 Agent 的结果开启的轮次，客户端据此知道它们何时结束。
 - Agent 把工作交给子 Agent 时，客户端里的这次请求会一直等到子 Agent 都完成、Agent 也回复了它们的结果才结束，和官方的 DSH ACP Agent 一样。
 - 在客户端的历史里删除会话：DSH 会把它归档，之后可以在 DSH 里恢复。支持复制会话（fork）的客户端可以在会话的副本上继续，副本在 DSH 里是一个独立的会话。
 - 客户端里配置的 MCP 服务器（stdio 和 HTTP）会挂到会话上，工具只属于这个会话，和官方的 DSH ACP Agent 一样；DSH 自己配置的 MCP 服务器在客户端的会话里同样能用。
@@ -91,7 +93,7 @@ DSH 加载插件后，会在本机写入一个启动脚本：
 ~/.agents-anywhere/dsh-acp/bin/dsh-acp --check
 ```
 
-`--check` 连接正在运行的 DSH（不会启动 DSH），打印 DSH 版本、插件版本，以及审批和提问是否已经接通；`--list` 列出可以连接的 DSH；同时运行多个 DSH 时，默认连接最后启动的那个，可以用 `--instance <实例 ID>` 指定。设置环境变量 `DSH_ACP_DEBUG=1` 后，连接过程的诊断信息会写到标准错误输出。
+`--check` 连接正在运行的 DSH（不会启动 DSH），打印 DSH 版本、插件版本，以及审批和提问是否已经接通；`--list` 列出可以连接的 DSH；同时运行多个 DSH 时，默认连接最后启动的那个，可以用 `--instance <实例 ID>` 指定。`--version` 只显示插件版本。设置环境变量 `DSH_ACP_DEBUG=1` 后，连接过程的诊断信息会写到标准错误输出。
 
 插件自身的日志在 DSH 的日志里，以 `acp-bridge` 开头。
 
@@ -132,6 +134,8 @@ const acp = client({ name: 'my-tool' }).connect(dsh.openAcpStream())
 ```
 
 此接口连接运行中的 DSH，不会自动启动 Desktop。契约内容、兼容约定和完整的客户端接口见[技术说明](TECHNICAL.zh.md#本机-rpc)。
+
+需要自动启动、但运行不了启动脚本的程序（例如在 Windows 上不经 shell 启动进程、因而运行不了 `.cmd` 的程序），可以读取启动脚本旁边的 `dsh-acp.json`：它写明了启动脚本运行的程序、参数和环境变量，照它直接启动即可，效果和运行启动脚本相同。格式见[技术说明](TECHNICAL.zh.md#端点记录与启动脚本)。
 
 ## 开发
 
