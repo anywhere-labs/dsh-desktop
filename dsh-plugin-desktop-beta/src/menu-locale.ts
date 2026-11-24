@@ -1,16 +1,36 @@
 import type { MenuItemConstructorOptions } from 'electron'
 
-/** Built-in Desktop languages and the native-menu copy. */
+/**
+ * Built-in Desktop languages: the native-menu copy, and the quit confirmation in upstream Desktop's words with
+ * this product's name, plus the question and button of the confirmations before a restart and an update.
+ */
 const en = { application: 'Application', edit: 'Edit', menuBar: 'Application menu',
   undo: 'Undo', redo: 'Redo', cut: 'Cut', copy: 'Copy', paste: 'Paste', delete: 'Delete', selectAll: 'Select All',
   view: 'View', reload: 'Reload', forceReload: 'Force Reload', toggleDevTools: 'Toggle Developer Tools',
   actualSize: 'Actual Size', zoomIn: 'Zoom In', zoomOut: 'Zoom Out', toggleFullScreen: 'Toggle Full Screen',
-  window: 'Window', minimize: 'Minimize', close: 'Close' }
+  window: 'Window', minimize: 'Minimize', close: 'Close',
+  aboutProduct: 'DSH Desktop Beta', quit: 'Quit', cancel: 'Cancel', quitTitle: 'Quit DSH Desktop Beta?',
+  quitActiveTasks: 'Running tasks will be interrupted.',
+  quitScheduledTasks: 'Scheduled tasks will not run while the app is closed.',
+  quitActiveAndScheduledTasks: 'Running tasks will be interrupted, and scheduled tasks will not run while the app is closed.',
+  quitAndRestart: 'Quit and Restart', quitAndRestartTitle: 'Quit and restart DSH Desktop Beta?',
+  installAndRestart: 'Install and Restart', installAndRestartTitle: 'Install the update and restart DSH Desktop Beta?' }
 const zh: typeof en = { application: '应用', edit: '编辑', menuBar: '应用菜单',
   undo: '撤销', redo: '重做', cut: '剪切', copy: '复制', paste: '粘贴', delete: '删除', selectAll: '全选',
   view: '查看', reload: '重新加载', forceReload: '强制重新加载', toggleDevTools: '切换开发者工具',
   actualSize: '实际大小', zoomIn: '放大', zoomOut: '缩小', toggleFullScreen: '切换全屏',
-  window: '窗口', minimize: '最小化', close: '关闭' }
+  window: '窗口', minimize: '最小化', close: '关闭',
+  aboutProduct: 'DSH Desktop Beta', quit: '退出', cancel: '取消', quitTitle: '退出 DSH Desktop Beta？',
+  quitActiveTasks: '当前正在运行的任务将会中断',
+  quitScheduledTasks: '应用关闭期间，定时任务不会运行',
+  quitActiveAndScheduledTasks: '当前正在运行的任务将会中断，且应用关闭期间，定时任务不会运行',
+  quitAndRestart: '退出并重启', quitAndRestartTitle: '退出并重启 DSH Desktop Beta？',
+  installAndRestart: '安装并重启', installAndRestartTitle: '安装更新并重启 DSH Desktop Beta？' }
+
+/** The copy of one built-in language. */
+export type DesktopMessages = typeof en
+/** One resolved built-in language. */
+export interface DesktopLocale { readonly messages: DesktopMessages }
 
 /** Follow the OS preference order, using the same primary-language match as the official frontend. */
 export function preferredDesktopLocale(languages: readonly string[]): 'zh' | 'en' {
@@ -21,7 +41,7 @@ export function preferredDesktopLocale(languages: readonly string[]): 'zh' | 'en
   return 'en'
 }
 
-export function resolveDesktopLocale(language: string) {
+export function resolveDesktopLocale(language: string): DesktopLocale {
   return { messages: language.toLowerCase().startsWith('zh') ? zh : en }
 }
 

@@ -199,6 +199,31 @@
       "upstreamSha256": "56cc13c48e1937e2809a9b2719a9ec55837d650563aec414461cbfeebff86ade",
       "commit": "9c2670d3bce5275e0d1610272958121af87787bb",
       "version": "0.2.2-rc.5"
+    },
+    {
+      "upstream": "apps/desktop/src/quit-confirmation.ts",
+      "local": "src/quit-confirmation.ts",
+      "upstreamSha256": "5dfd6db2073a0cf43204af8138ccd000d0b8e04bff43ea773406afb4c3c3d5f9"
+    },
+    {
+      "upstream": "apps/desktop/tests/quit-confirmation.spec.ts",
+      "local": "tests/quit-confirmation.spec.ts",
+      "upstreamSha256": "8e2dd37cd4771f354f34c8cfd734785ab69cc91bedf040157a01d218b37c1b74"
+    },
+    {
+      "upstream": "apps/desktop-host/src/quit-inspection.ts",
+      "local": "src/host/quit-inspection.ts",
+      "upstreamSha256": "d732d8706a6fe5eb993c4dfd90fdec7203889507b0b13b957cfebebd80cd16e2"
+    },
+    {
+      "upstream": "apps/desktop-host/src/update-tasks.ts",
+      "local": "src/host/quit-inspection.ts",
+      "upstreamSha256": "ace98160f307323fd04055dc990ab1d52faeb848a0a03ec9cf43c475fad9972b"
+    },
+    {
+      "upstream": "apps/desktop-host/tests/quit-inspection.spec.ts",
+      "local": "tests/quit-inspection.spec.ts",
+      "upstreamSha256": "148f297350767e8831ab02b13658bebd3237834d4340daeb8053215ef2acd570"
     }
   ]
 }

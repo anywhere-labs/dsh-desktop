@@ -27,6 +27,7 @@ import { installSkillBadgeResolution } from './skill-badge.ts'
 import { formatFatalDiagnostic } from './fatal-diagnostic.ts'
 import { resolveOfficeConfig } from './office.ts'
 import { PluginSummary, recordSkippedBundles } from './plugin-summary.ts'
+import { installDesktopQuitInspection } from './quit-inspection.ts'
 import { readStartupEntries } from './startup-entries.ts'
 
 export async function main(): Promise<void> {
@@ -117,6 +118,8 @@ export async function main(): Promise<void> {
     // A Host whose startup failed keeps the exit code fatal() set, as upstream Desktop's Host does.
     if (running !== undefined) process.exit(0)
   })()
+  /** Answers the shell's quit confirmation once the profile has booted. */
+  let quitInspection: ReturnType<typeof installDesktopQuitInspection> | undefined
   process.on('message', (value: unknown) => {
     if (dragResources?.receive(value) === true) return
     if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'logging-config') {
@@ -137,6 +140,21 @@ export async function main(): Promise<void> {
         answer = entries === undefined ? { error: 'The Host has not started loading plugins yet' } : { entries }
       } catch (error) { answer = { error: `Could not read the Loader: ${String(error)}` } }
       void send({ type: 'startup-entries', requestId: query.requestId, ...answer }).catch(fatal)
+      return
+    }
+    if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'quit-inspection') {
+      const query = value as { requestId?: unknown }
+      if (!Number.isSafeInteger(query.requestId)) return
+      void (async () => {
+        try {
+          if (stopping !== undefined || quitInspection === undefined) throw new Error('desktop quit: Host is unavailable')
+          await send({ type: 'quit-inspection', requestId: query.requestId, ...await quitInspection() })
+        } catch (error) {
+          // The shell treats an unknown state as interruptible work and asks before quitting.
+          await send({ type: 'quit-inspection', requestId: query.requestId, activeTasks: true, scheduledTasks: false,
+            error: error instanceof Error ? error.message : String(error) })
+        }
+      })().catch(fatal)
       return
     }
     if (typeof value === 'object' && value !== null && 'type' in value && value.type === 'injections') {
@@ -164,6 +182,7 @@ export async function main(): Promise<void> {
   process.once('disconnect', () => { void stop().catch(fatal) })
   const { ctx } = await application
   operations?.observe(ctx)
+  if (!stopping) quitInspection = installDesktopQuitInspection(ctx)
   // The shell signs the official account plugin's embedded Platform pages (top-up, usage) in with this grant.
   if (!stopping) installPlatformSessionPublisher(ctx, (session) => { void send({ type: 'platform-session', session }).catch(() => {}) })
   // The runtime patch above mounts Office from the bundled payload; a development tree without a prepared payload runs without it.

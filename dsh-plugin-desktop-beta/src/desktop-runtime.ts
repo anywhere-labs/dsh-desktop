@@ -5,7 +5,7 @@ import { cleanupDisposableTree } from '../../dsh-plugin-desktop/src/disposable-t
 import { dirname, join } from 'node:path'
 import type { PlatformSession } from '@deepseek-ai/dsh-deepseek-account'
 import { DesktopBackendController } from './backend-controller.ts'
-import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, type DesktopPlatformLoginRequest } from './host-process.ts'
+import { DesktopHostExitError, DesktopHostFatalError, DesktopHostProcess, type DesktopPlatformLoginRequest, type DesktopQuitInspection } from './host-process.ts'
 import { isDesktopAppIcon } from './app-icon.ts'
 import { DesktopPreferenceStore, parsePreferences } from './desktop-preferences.ts'
 import { DEFAULT_FEATURES, NextProfiles } from './profiles.ts'
@@ -302,6 +302,14 @@ export class NextDesktopRuntime {
   dragResource(address: string, signal: AbortSignal): Promise<{ readonly path: string; readonly sha256: string; readonly size: number } | null> {
     const resources = this.backend.host === undefined ? undefined : this.hostProcess?.dragResources
     return resources === undefined ? Promise.reject(new Error('File drag Host unavailable')) : resources.resolve(address, signal)
+  }
+
+  /**
+   * Ask the running Host what quitting now would interrupt.
+   * @returns The Host's answer, or undefined while no Host is ready, when nothing can be running.
+   */
+  inspectQuit(): Promise<DesktopQuitInspection> | undefined {
+    return this.backend.host === undefined ? undefined : this.hostProcess?.inspectQuit()
   }
 
   /** Apply access toggles without stopping conversations or changing the renderer capability. */

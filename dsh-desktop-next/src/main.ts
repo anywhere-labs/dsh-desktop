@@ -7,7 +7,7 @@ import { access, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { freemem, totalmem } from 'node:os'
 import { dirname, isAbsolute, join, resolve } from 'node:path'
-import { app, BrowserWindow, clipboard, crashReporter, dialog, ipcMain, Menu, nativeTheme, net, Notification, protocol, safeStorage, screen, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from 'electron'
+import { app, BrowserWindow, clipboard, crashReporter, dialog, ipcMain, Menu, nativeImage, nativeTheme, net, Notification, powerMonitor, protocol, safeStorage, screen, session, shell, type IpcMainInvokeEvent, type MenuItemConstructorOptions, type OpenDialogOptions } from 'electron'
 import { appRequestHeaders, forwardWebRequest, serveWebDocument } from './web-document.ts'
 import { installAppDownloads } from './app-downloads.ts'
 import { installDesktopFileDrag, installFileActions, liveshareOwnerLogin } from './upstream-family.ts'
@@ -61,6 +61,7 @@ import { NextUpdateInstaller } from './update-installer.ts'
 import { macUpdateArch } from './update-arch.ts'
 import { manualUpdate, manualUpdateHint, releaseNotesUrl, updateLabel } from './update-state.ts'
 import { DESKTOP_SHUTDOWN_TIMEOUT_MS } from '../../dsh-plugin-desktop/src/shutdown.ts'
+import { DesktopQuitConfirmation } from './quit-confirmation.ts'
 import { isDesktopRendererStatus, NextRendererRecovery, type DesktopNavigationCause } from './renderer-recovery.ts'
 import { collectRendererDiagnostics, rendererDiagnosticsFields } from './renderer-diagnostics.ts'
 import { RollingRendererEvidence } from './renderer-evidence.ts'
@@ -157,6 +158,14 @@ let onboardingSurfaceActive = false
 let onboardingComputerUse = false
 let relaunch: string[] | undefined
 let installingUpdate = false
+/** Set by quits that must not ask: their own dialog already asked, or the official confirmation already approved them. */
+let skipQuitConfirmation = false
+/**
+ * The operating system is ending the session: the quit skips its confirmation. Windows sets it on the definitive
+ * session-end message. macOS and Linux set it on the power-off notification, which another application can still
+ * cancel on macOS, so the next focus or show of a Desktop window clears it.
+ */
+let sessionEnding = false
 /** A later launch must not open a window on the data directory the startup prompt may reject. */
 let confirmingDataDirectory = false
 let systemProxy: DesktopSystemProxyProbe = {}
@@ -270,6 +279,30 @@ const native = new NativeDesktop({ root, language: () => windowsLanguage, state,
   show: openMain, run, warn: error => runtime.diagnostics.append(String(error), 'warn'),
   appIcon: (): DesktopAppIcon => runtime.preferences.appIcon, dark: systemDark, packaged: app.isPackaged,
   windows: () => BrowserWindow.getAllWindows(), dock: () => app.dock, installed: applyInstalledAppIcon })
+/** Upstream Desktop's quit confirmation: it asks only when the running Host reports work that quitting would interrupt. */
+const quitConfirmation = new DesktopQuitConfirmation({
+  locale: () => resolveDesktopLocale(windowsLanguage),
+  inspect: () => runtime.inspectQuit(),
+  // No owner window: a hidden window stays hidden and the native box is its own top-level window. A quit
+  // from the menu bar or the Dock leaves macOS inactive, where the alert would open behind other applications.
+  show: (options) => {
+    if (process.platform === 'darwin') app.focus({ steal: true })
+    return dialog.showMessageBox(options)
+  },
+  // macOS raises the open alert with the application; Electron exposes no handle to the Windows task
+  // dialog, so a repeated request there only joins the open decision.
+  focus: () => { if (process.platform === 'darwin') app.focus({ steal: true }) },
+  // The task dialog draws its main icon at the system icon size from the multi-size ICO of the chosen app icon.
+  icon: () => {
+    const icon = appWindowIcon(root, process.platform, runtime.preferences.appIcon, systemDark())
+    return icon === undefined ? undefined : nativeImage.createFromPath(icon)
+  },
+})
+/** Quit without the task confirmation: the caller's own dialog asked, or the official confirmation approved the quit. */
+function quitWithoutConfirmation(): void {
+  skipQuitConfirmation = true
+  app.quit()
+}
 const permissions = createNativePermissions()
 const updateInstaller = new NextUpdateInstaller({ platform: process.platform, executable: process.execPath,
   language: () => windowsLanguage,
@@ -503,6 +536,11 @@ function createWindow(preload: string, primary = false): BrowserWindow {
     if (maximize && process.platform === 'darwin') window.maximize()
   })
   applyWindowMaterial(window, runtime.preferences)
+  // Shutdown, restart and log-off must not wait on a quit confirmation. query-session-end is only a question
+  // that another application can veto without any follow-up message, so it does not count.
+  if (process.platform === 'win32') window.on('session-end', () => { sessionEnding = true })
+  // A cancelled macOS shutdown leaves the process running, and user attention on a window shows the session continues.
+  else window.on('focus', () => { sessionEnding = false }).on('show', () => { sessionEnding = false })
   if (primary) {
     window.webContents.on('before-input-event', (event, input) => {
       if (input.type === 'keyDown' && input.key === ',' && (input.control || input.meta) && !input.alt) { event.preventDefault(); openControls() }
@@ -843,6 +881,8 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
       else void updates.download()
     } else {
       if (updates.snapshot().phase !== 'ready') return
+      // Installing quits the app: it asks once, before the installer is staged, as any quit asks.
+      if (!await quitConfirmation.confirm('update') || quitting || runtime.busy || updates.snapshot().phase !== 'ready') return
       void updates.install()
     }
     return
@@ -877,17 +917,17 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
       if (!await confirmed(t('重新打开设置向导？', 'Reopen the setup wizard?'),
         t('应用将重启，并带入当前 Profile 的设置。正在运行的任务会中断。', 'The app will restart with your current Profile settings selected. Running tasks will be interrupted.'))) return
       relaunch = relaunchArguments(process.argv.slice(1), false, false, true)
-      app.quit()
+      quitWithoutConfirmation()
       return
     }
     if (type === 'restart-app' || type === 'restart-recovery') {
-      if (!await confirmed(type === 'restart-recovery'
-        ? t('重启应用并进入恢复模式？', 'Restart the application in recovery mode?')
-        : t('现在重启 DSH NEXT？', 'Restart DSH NEXT now?'), type === 'restart-recovery'
-        ? t('应用将先打开恢复助手，暂不加载当前 Profile 和插件。正在运行的任务会中断。', 'The recovery assistant will open before loading the current Profile and plugins. Running tasks will be interrupted.')
-        : undefined)) return
+      // Quit and Restart asks as quitting does; the recovery restart explains itself in its own dialog.
+      if (!await (type === 'restart-recovery'
+        ? confirmed(t('重启应用并进入恢复模式？', 'Restart the application in recovery mode?'),
+          t('应用将先打开恢复助手，暂不加载当前 Profile 和插件。正在运行的任务会中断。', 'The recovery assistant will open before loading the current Profile and plugins. Running tasks will be interrupted.'))
+        : quitConfirmation.confirm('restart')) || quitting) return
       relaunch = relaunchArguments(process.argv.slice(1), type === 'restart-recovery', runtime.safeMode)
-      app.quit()
+      quitWithoutConfirmation()
       return
     }
     if (type === 'create') { runtime.profiles.create(profileName(input.name)); return }
@@ -999,7 +1039,7 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
     if (type === 'switch') {
       runtime.profiles.select(next)
       relaunch = relaunchArguments(process.argv.slice(1), false, false)
-      app.quit()
+      quitWithoutConfirmation()
       return
     }
     if (type === 'safe-mode' || type === 'normal-mode') {
@@ -1010,7 +1050,7 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
       await recoveryStopping
       await runtime.backend.stop()
       relaunch = relaunchArguments(process.argv.slice(1), false, type === 'safe-mode')
-      app.quit()
+      quitWithoutConfirmation()
       return
     }
     // Recovery actions can always bypass first-run setup to repair or inspect a Profile.
@@ -1025,7 +1065,7 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
       runtime.diagnostics.append(`Repaired Profile ${next}; its previous configuration is in ${backup}`)
       await announceRepair(backup)
       relaunch = relaunchArguments(process.argv.slice(1), false, false)
-      app.quit()
+      quitWithoutConfirmation()
       return
     }
     const change = async (): Promise<void> => {
@@ -1037,7 +1077,7 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
       await runtime.backend.stop()
       await change()
       relaunch = relaunchArguments(process.argv.slice(1), false, type === 'restart')
-      app.quit()
+      quitWithoutConfirmation()
       return
     }
     await runtime.restart(change)
@@ -1095,7 +1135,7 @@ async function recoveryAction(input: Record<string, unknown>): Promise<void> {
         ? t('应用将返回原 Profile，并移除临时环境。临时数据不会保留，正在运行的任务会中断。', 'The app will return to the original Profile and remove the temporary environment. Temporary data will not be kept, and running tasks will be interrupted.')
         : t('应用将退出恢复助手，重新启动原 Profile。', 'The app will leave the recovery assistant and restart the original Profile.'))) return
     relaunch = relaunchArguments(process.argv.slice(1), false, false)
-    app.quit()
+    quitWithoutConfirmation()
     return
   }
   if (action === 'host-startup-timeout') {
@@ -1186,7 +1226,7 @@ async function recoveryAction(input: Record<string, unknown>): Promise<void> {
     runtime.diagnostics.flush()
     runtime.recovery.factoryReset()
     relaunch = relaunchArguments(process.argv.slice(1), false, false)
-    app.quit(); return
+    quitWithoutConfirmation(); return
   }
   throw new Error('Unknown recovery action')
 }
@@ -1279,7 +1319,7 @@ async function changeDataDirectory(restoreDefault: boolean): Promise<void> {
   else atomicJson(locationFile, { home: destination })
   rememberLaunchDirectory(destination)
   relaunch = relaunchArguments(process.argv.slice(1), false, false)
-  app.quit()
+  quitWithoutConfirmation()
 }
 
 /** Copy the data directory while the Host is stopped; the Host starts again even when copying fails. */
@@ -1356,6 +1396,8 @@ function timed<T>(operation: Promise<T>): Promise<Timed<T>> {
 async function main(): Promise<void> {
   await app.whenReady()
   if (quitting) return
+  // The macOS and Linux power-off notification arrives before the terminate request.
+  if (process.platform !== 'win32') powerMonitor.on('shutdown', () => { sessionEnding = true })
   rendererEvidence.start()
   let inputRevision = 0
   let inputBlocked = false
@@ -1648,7 +1690,30 @@ async function main(): Promise<void> {
 app.on('before-quit', event => {
   if (quitting || !ownsInstance) return
   event.preventDefault()
+  // An approved quit, the update installer's handoff and the end of the OS session do not ask; without a
+  // ready Host nothing can be running, so the quit proceeds at once.
+  if (skipQuitConfirmation || installingUpdate || sessionEnding || runtime.backend.host === undefined) { shutDown(); return }
+  void quitConfirmation.confirm().then((approved) => {
+    if (quitting) return
+    if (approved) shutDown()
+    else keepRunning()
+  }, (error: unknown) => {
+    // The box itself failed: the user asked to quit, so the quit proceeds.
+    runtime.diagnostics.record({ source: 'electron', event: 'quit.confirmation-failed', level: 'error', error })
+    if (!quitting) shutDown()
+  })
+})
+
+/** The user kept the app running; a quit that began when the last window closed leaves a window to come back to. */
+function keepRunning(): void {
+  runtime.diagnostics.record({ source: 'electron', event: 'quit.cancelled' })
+  if (process.platform !== 'darwin' && !native.available && !BrowserWindow.getAllWindows().some(window => window.isVisible())) openMain()
+}
+
+/** Hide the windows and stop the Host within the shutdown bound, then exit, relaunch or hand over to the update installer. */
+function shutDown(): void {
   quitting = true
+  quitConfirmation.dispose()
   rendererRecovery?.stop()
   rendererEvidence.stop()
   // Pending evidence lands now; a Host that dies of OOM while stopping is written at once.
@@ -1717,7 +1782,7 @@ app.on('before-quit', event => {
     }
     await completeShutdown(true)
   }).catch(error => { if (finish()) { runtime.diagnostics.record({ source: 'electron', event: 'shutdown.failed', level: 'error', error }); void completeShutdown(false) } })
-})
+}
 if (ownsInstance) {
   process.on('uncaughtExceptionMonitor', (error, origin) => {
     runtime.diagnostics.record({ source: 'electron', event: 'uncaught-exception', level: 'error', error, fields: { origin } })

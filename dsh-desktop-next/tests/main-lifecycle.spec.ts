@@ -27,6 +27,7 @@ const fixture = vi.hoisted(() => ({
   runtime: undefined as { actionFailure: string } | undefined,
   failureReportFile: vi.fn(async (): Promise<string | undefined> => undefined),
   dragResource: vi.fn(async (_address: string, _signal: AbortSignal): Promise<null> => null),
+  inspectQuit: vi.fn((): Promise<{ activeTasks: boolean, scheduledTasks: boolean }> | undefined => undefined),
   saveStartupTimeout: vi.fn(),
   saveAppIcon: vi.fn(),
   dockIcon: vi.fn(),
@@ -64,6 +65,7 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
   actionFailure = ''
   failureReportFile = fixture.failureReportFile
   dragResource = fixture.dragResource
+  inspectQuit = fixture.inspectQuit
   saveStartupTimeout = fixture.saveStartupTimeout
   saveAppIcon(value: 'default' | 'classic') { fixture.saveAppIcon(value); this.preferences.appIcon = value; fixture.runtimeOptions!.onChange() }
   constructor(options: ConstructorParameters<typeof NextDesktopRuntime>[0]) {
@@ -177,6 +179,7 @@ vi.mock('electron', async () => {
     systemPreferences: { getMediaAccessStatus: () => 'not-determined', askForMediaAccess: vi.fn(async () => false), isTrustedAccessibilityClient: () => false },
     screen: { getDisplayMatching: () => ({ workArea: { x: 0, y: 25, width: 1728, height: 1092 } }) },
     desktopCapturer: { getSources: vi.fn(async () => []) },
+    powerMonitor: new EventEmitter(),
     ipcMain: { removeHandler: (name: string) => fixture.handlers.delete(name), handle: (name: string, action: (...args: any[]) => any) => fixture.handlers.set(name, action), on: (name: string, action: (...args: any[]) => any) => fixture.handlers.set(name, action) },
   }
 })
@@ -187,6 +190,7 @@ beforeEach(async () => {
   fixture.appPaths.clear(); fixture.lockPaths.length = 0; fixture.ownsInstance = true; fixture.runtimeOptions = undefined
   fixture.runtime = undefined; fixture.failureReportFile.mockReset().mockResolvedValue(undefined)
   fixture.dragResource.mockReset().mockResolvedValue(null)
+  fixture.inspectQuit.mockReset().mockReturnValue(undefined)
   fixture.locationRoot = mkdtempSync(join(tmpdir(), 'next-location-root-'))
   fixture.phase = 'ready'
   fixture.needsOnboarding = false; fixture.corruptProfile = false; fixture.restart.mockReset(); fixture.hostReady = false
@@ -197,10 +201,11 @@ beforeEach(async () => {
   fixture.crashStart.mockReset(); for (const action of Object.values(fixture.memory)) action.mockReset()
   fixture.stop.mockReset().mockResolvedValue(undefined); fixture.start.mockClear(); fixture.close.mockReset().mockResolvedValue(undefined)
   fixture.startupElevation = { relaunched: false, state: {} }; fixture.elevation = undefined
-  const { app, autoUpdater, dialog, nativeTheme, shell } = await import('electron')
+  const { app, autoUpdater, dialog, nativeTheme, powerMonitor, shell } = await import('electron')
   autoUpdater.removeAllListeners()
   app.removeAllListeners()
   nativeTheme.removeAllListeners()
+  powerMonitor.removeAllListeners()
   Object.assign(nativeTheme, { shouldUseDarkColorsForSystemIntegratedUI: false })
   vi.mocked(app.relaunch).mockClear()
   vi.mocked(app.quit).mockClear()
@@ -2301,4 +2306,182 @@ it('refuses data-directory changes and backups from Safe Mode', async () => {
     expect(dialog.showOpenDialog).not.toHaveBeenCalled()
     expect(existsSync(join(fixture.locationRoot, 'desktop-next-last-home.json'))).toBe(false)
   } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+/** Launch with a ready Host whose quit inspection gives `inspection`, on `platformName`; returns what the quit tests drive. */
+async function launchForQuit(platformName: NodeJS.Platform, inspection: { activeTasks: boolean, scheduledTasks: boolean } | 'unknown') {
+  Object.defineProperty(process, 'platform', { ...Object.getOwnPropertyDescriptor(process, 'platform')!, value: platformName })
+  fixture.hostReady = true
+  fixture.inspectQuit.mockImplementation(async () => {
+    if (inspection === 'unknown') throw new Error('desktop quit: inspection timed out')
+    return inspection
+  })
+  await import('../src/main.ts')
+  await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+  const window = fixture.windows[0]
+  window.visible = true
+  const electron = await import('electron')
+  vi.mocked(electron.dialog.showMessageBox).mockClear()
+  vi.mocked(electron.app.focus).mockClear()
+  const sender = { sender: window.webContents, senderFrame: window.webContents.mainFrame }
+  return { ...electron, window, command: (value: object) => fixture.handlers.get('dsh-next:command')!(sender, value) }
+}
+
+it.each([
+  [{ activeTasks: false, scheduledTasks: false }, undefined],
+  [{ activeTasks: true, scheduledTasks: false }, '当前正在运行的任务将会中断'],
+  [{ activeTasks: false, scheduledTasks: true }, '应用关闭期间，定时任务不会运行'],
+  [{ activeTasks: true, scheduledTasks: true }, '当前正在运行的任务将会中断，且应用关闭期间，定时任务不会运行'],
+  ['unknown', '当前正在运行的任务将会中断'],
+] as const)('asks before quitting only when the running Host reports work (%j), and keeps running when cancelled', async (inspection, detail) => {
+  const home = mkdtempSync(join(tmpdir(), 'next-quit-confirmation-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+  try {
+    const { app, dialog, window } = await launchForQuit('darwin', inspection)
+    if (detail !== undefined) {
+      vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response: 1, checkboxChecked: false })
+      app.quit()
+      await vi.waitFor(() => expect(fixture.diagnosticAppend).toHaveBeenCalledWith({ source: 'electron', event: 'quit.cancelled' }))
+      // No owner window: the box is its own top-level window, and macOS is activated so that it shows in front.
+      expect(vi.mocked(dialog.showMessageBox).mock.calls).toEqual([[{ type: 'warning', title: 'DSH NEXT', message: '退出 DSH NEXT？',
+        detail, buttons: ['退出', '取消'], defaultId: 0, cancelId: 1, noLink: true }]])
+      expect(app.focus).toHaveBeenCalledWith({ steal: true })
+      expect(fixture.close).not.toHaveBeenCalled()
+      expect(window.visible).toBe(true)
+    }
+    app.quit()
+    await vi.waitFor(() => expect(fixture.close).toHaveBeenCalledOnce())
+    expect(window.visible).toBe(false)
+    expect(dialog.showMessageBox).toHaveBeenCalledTimes(detail === undefined ? 0 : 2)
+    expect(fixture.inspectQuit).toHaveBeenCalledTimes(detail === undefined ? 1 : 2)
+  } finally {
+    warn.mockRestore()
+    Object.defineProperty(process, 'platform', platform)
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
+})
+
+it('shows the Windows task dialog with the chosen app icon, and quits from it once', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-quit-windows-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  try {
+    const { app, dialog } = await launchForQuit('win32', { activeTasks: true, scheduledTasks: false })
+    let answer!: (result: Electron.MessageBoxReturnValue) => void
+    vi.mocked(dialog.showMessageBox).mockImplementationOnce(() => new Promise(resolve => { answer = resolve }))
+    app.quit()
+    await vi.waitFor(() => expect(dialog.showMessageBox).toHaveBeenCalledOnce())
+    // A second request joins the open decision instead of stacking another box.
+    app.quit()
+    expect(vi.mocked(dialog.showMessageBox).mock.calls[0]).toEqual([{ type: 'none', icon: expect.objectContaining({ path: expect.stringMatching(/[\\/]build[\\/]app-icon\.ico$/) }),
+      title: 'DSH NEXT', message: '退出 DSH NEXT？', detail: '当前正在运行的任务将会中断', buttons: ['退出', '取消'], defaultId: 0, cancelId: 1, noLink: true }])
+    expect(app.focus).not.toHaveBeenCalled()
+    answer({ response: 0, checkboxChecked: false })
+    await vi.waitFor(() => expect(fixture.close).toHaveBeenCalledOnce())
+    expect(dialog.showMessageBox).toHaveBeenCalledOnce()
+    expect(fixture.inspectQuit).toHaveBeenCalledOnce()
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
+})
+
+it.each([1, 0])('asks once, in its own words, before Quit and Restart interrupts running tasks (answer %i)', async response => {
+  const home = mkdtempSync(join(tmpdir(), 'next-quit-restart-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  try {
+    const { app, command, dialog } = await launchForQuit('darwin', { activeTasks: true, scheduledTasks: false })
+    vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response, checkboxChecked: false })
+    await command({ type: 'restart-app' })
+    expect(vi.mocked(dialog.showMessageBox).mock.calls).toEqual([[expect.objectContaining({ message: '退出并重启 DSH NEXT？',
+      detail: '当前正在运行的任务将会中断', buttons: ['退出并重启', '取消'] })]])
+    if (response === 1) {
+      expect(fixture.close).not.toHaveBeenCalled()
+      expect(app.relaunch).not.toHaveBeenCalled()
+      return
+    }
+    await vi.waitFor(() => expect(app.relaunch).toHaveBeenCalledOnce())
+    expect(dialog.showMessageBox).toHaveBeenCalledOnce()
+    expect(fixture.inspectQuit).toHaveBeenCalledOnce()
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
+})
+
+it('asks once before installing an update interrupts work, and leaves the update ready when cancelled', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-quit-update-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  const stage = vi.fn(async () => {})
+  const launch = vi.fn(async () => {})
+  vi.doMock('../src/update-installer.ts', () => ({ NextUpdateInstaller: class { stage = stage; launch = launch } }))
+  vi.doMock('../src/updates.ts', () => ({ NextUpdates: class {
+    constructor(private options: { install(): Promise<void> }) {}
+    snapshot() { return { phase: 'ready', installable: true } }
+    start() {}
+    dispose = async () => {}
+    install = () => this.options.install()
+  } }))
+  try {
+    const { command, dialog } = await launchForQuit('darwin', { activeTasks: true, scheduledTasks: true })
+    vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response: 1, checkboxChecked: false })
+    await command({ type: 'install-update' })
+    expect(stage).not.toHaveBeenCalled()
+    expect(vi.mocked(dialog.showMessageBox).mock.calls).toEqual([[{ type: 'warning', title: 'DSH NEXT', message: '安装更新并重启 DSH NEXT？',
+      detail: '当前正在运行的任务将会中断，且应用关闭期间，定时任务不会运行', buttons: ['安装并重启', '取消'], defaultId: 0, cancelId: 1, noLink: true }]])
+    await command({ type: 'install-update' })
+    expect(stage).toHaveBeenCalledOnce()
+    await vi.waitFor(() => expect(launch).toHaveBeenCalledOnce())
+    // The installer handoff does not ask a second time.
+    expect(dialog.showMessageBox).toHaveBeenCalledTimes(2)
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+    vi.doUnmock('../src/update-installer.ts'); vi.doUnmock('../src/updates.ts')
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
+})
+
+it('quits without the task confirmation after a restart dialog of its own', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-quit-own-dialog-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  try {
+    const { app, command, dialog } = await launchForQuit('darwin', { activeTasks: true, scheduledTasks: false })
+    await command({ type: 'restart-recovery' })
+    await vi.waitFor(() => expect(app.relaunch).toHaveBeenCalledWith({ args: expect.arrayContaining(['--next-recovery']) }))
+    expect(vi.mocked(dialog.showMessageBox).mock.calls).toEqual([[expect.anything(), expect.objectContaining({ message: '重启应用并进入恢复模式？' })]])
+    expect(fixture.inspectQuit).not.toHaveBeenCalled()
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
+})
+
+it.each(['darwin', 'win32'] as const)('quits without asking when %s ends the session', async platformName => {
+  const home = mkdtempSync(join(tmpdir(), 'next-quit-session-end-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  try {
+    const { app, dialog, powerMonitor, window } = await launchForQuit(platformName, { activeTasks: true, scheduledTasks: false })
+    if (platformName === 'win32') window.emit('session-end')
+    else {
+      powerMonitor.emit('shutdown')
+      // Another application cancelled the shutdown; attention on a window shows the session continues.
+      window.emit('focus')
+      vi.mocked(dialog.showMessageBox).mockResolvedValueOnce({ response: 1, checkboxChecked: false })
+      app.quit()
+      await vi.waitFor(() => expect(fixture.diagnosticAppend).toHaveBeenCalledWith({ source: 'electron', event: 'quit.cancelled' }))
+      powerMonitor.emit('shutdown')
+    }
+    app.quit()
+    await vi.waitFor(() => expect(fixture.close).toHaveBeenCalledOnce())
+    expect(dialog.showMessageBox).toHaveBeenCalledTimes(platformName === 'win32' ? 0 : 1)
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
 })
