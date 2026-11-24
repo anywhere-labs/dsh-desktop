@@ -13,6 +13,7 @@ import { isDesktopStartupEntry, MAX_STARTUP_ENTRIES, type DesktopStartupEntry } 
 import { isHostMemoryUsage, type HostMemoryUsage, type MemoryHostExit } from './memory-monitor.ts'
 import { isDesktopNotification } from './notifications.ts'
 import type { DesktopPermission, DesktopPermissionAction, DesktopPermissionSnapshot } from './permissions.ts'
+import type { DesktopQuitInspection } from './host/quit-inspection.ts'
 import { createFileDragAuthorization, isOperationEvidence } from './upstream-family.ts'
 
 interface ReadyEvent {
@@ -67,7 +68,15 @@ interface StartupEntriesEvent {
   readonly error?: string
 }
 
-type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | InjectionsEvent | StartupEntriesEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
+/** What quitting now would interrupt (src/host/quit-inspection.ts); a Host that could not tell answers with an error. */
+type QuitInspectionEvent = { readonly type: 'quit-inspection'; readonly requestId: number; readonly error?: string } & DesktopQuitInspection
+
+export type { DesktopQuitInspection }
+
+/** Quit inspection deadline; a slower Host counts as unknown work and the shell asks before quitting. */
+export const QUIT_INSPECTION_DEADLINE_MS = 2_000
+
+type DesktopHostEvent = ReadyEvent | FatalEvent | PlatformSessionEvent | PlatformLoginEvent | InjectionsEvent | StartupEntriesEvent | QuitInspectionEvent | ({ readonly type: 'memory' } & HostMemoryUsage) | { type: 'permission'; requestId: number; action: DesktopPermissionAction; permission: DesktopPermission } | { type: 'logging-config'; requestId: number; error?: string } | { type: 'browser-access'; requestId: number; error?: string } | { type: 'notification'; notification: DesktopNotification } | { readonly type: 'shutdown-complete' } | { readonly type: 'desktop-action'; readonly action: 'restart' | 'terminal' } | {
   readonly type: 'update-tasks'
   readonly requestId: number
   readonly active: boolean
@@ -135,6 +144,9 @@ function isDesktopHostEvent(message: unknown): message is DesktopHostEvent {
       return Number.isSafeInteger(candidate.requestId) && (candidate.error === undefined || typeof candidate.error === 'string')
         && (candidate.entries === undefined || (Array.isArray(candidate.entries) && candidate.entries.length <= MAX_STARTUP_ENTRIES
           && candidate.entries.every(isDesktopStartupEntry)))
+    case 'quit-inspection':
+      return Number.isSafeInteger(candidate.requestId) && typeof candidate.activeTasks === 'boolean'
+        && typeof candidate.scheduledTasks === 'boolean' && (candidate.error === undefined || typeof candidate.error === 'string')
     default:
       return false
   }
@@ -278,6 +290,7 @@ export class DesktopHostProcess {
   private readonly loggingRequests = new Map<number, { resolve: () => void; reject: (error: Error) => void }>()
   private readonly injectionRequests = new Map<number, { resolve: (injections: readonly unknown[]) => void; reject: (error: Error) => void }>()
   private readonly startupQueries = new Map<number, { resolve: (entries: readonly DesktopStartupEntry[]) => void; reject: (error: Error) => void }>()
+  private readonly quitQueries = new Map<number, { resolve: (inspection: DesktopQuitInspection) => void; reject: (error: Error) => void }>()
   /** Authorizes the workspace files native file drags borrow, where the followed DSH release drags files natively. */
   readonly dragResources = createFileDragAuthorization?.(message => new Promise<void>((resolve, reject) => {
     const child = this.child
@@ -423,6 +436,11 @@ export class DesktopHostProcess {
         if (message.error === undefined && message.entries !== undefined) query?.resolve(message.entries)
         else query?.reject(new Error(message.error ?? 'Next Host omitted its startup entries'))
       }
+      else if (message.type === 'quit-inspection') {
+        const query = this.quitQueries.get(message.requestId)
+        if (message.error === undefined) query?.resolve({ activeTasks: message.activeTasks, scheduledTasks: message.scheduledTasks })
+        else query?.reject(new Error(message.error))
+      }
       else {
         const query = this.taskQueries.get(message.requestId)
         if (message.error === undefined) query?.resolve(message.active)
@@ -561,6 +579,28 @@ export class DesktopHostProcess {
   }
 
   /**
+   * Ask the Host what quitting now would interrupt.
+   * @returns Active tasks and armed scheduled reminders; rejects when the Host is unavailable or misses
+   * {@link QUIT_INSPECTION_DEADLINE_MS}, and the shell then asks before quitting.
+   */
+  async inspectQuit(): Promise<DesktopQuitInspection> {
+    const child = this.child
+    if (child === undefined || !child.connected || this.failureReported || this.stopping) {
+      throw new Error('desktop quit: Host is unavailable')
+    }
+    const requestId = this.nextControlId++
+    const end = this.controlOperation('quit-inspection', requestId)
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await new Promise<DesktopQuitInspection>((resolve, reject) => {
+        this.quitQueries.set(requestId, { resolve, reject })
+        timer = setTimeout(() => { reject(new Error('desktop quit: inspection timed out')) }, QUIT_INSPECTION_DEADLINE_MS)
+        child.send({ type: 'quit-inspection', requestId }, (error) => { if (error !== null) reject(error) })
+      }).catch(error => { end(error); throw error })
+    } finally { end(); clearTimeout(timer); this.quitQueries.delete(requestId) }
+  }
+
+  /**
    * Request teardown and await child exit, escalating termination when needed.
    * @param requireGraceful - Reject update handoff after forced termination or unsuccessful child exit.
    * @returns Completion of owned process teardown. DesktopHostUncleanExitError confirms exit but refuses installation;
@@ -604,6 +644,8 @@ export class DesktopHostProcess {
     this.injectionRequests.clear()
     for (const query of this.startupQueries.values()) query.reject(error)
     this.startupQueries.clear()
+    for (const query of this.quitQueries.values()) query.reject(error)
+    this.quitQueries.clear()
     this.dragResources?.fail(error)
     if (!this.failureReported && !this.stopping) {
       this.failureReported = true

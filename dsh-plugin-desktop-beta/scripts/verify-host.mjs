@@ -162,6 +162,8 @@ try {
   const createdWorkspace = await rpc('create', { request: { path: workspacePath } }, 'workspace')
   const createdSession = await rpc('create', { request: { cwd: workspacePath } }, 'session')
   assert.ok((await rpc('list', { _request: {} }, 'session')).items.some(item => item.sessionId === createdSession.sessionId))
+  // The quit confirmation reads the composed task services and the loaded session's activity; an idle session holds neither.
+  assert.deepEqual(await host.inspectQuit(), { activeTasks: false, scheduledTasks: false })
   const retiredSchedule = '@deepseek-ai/dsh-experimental-schedule-bundle'
   assert.equal((await rpc('listBundles')).some(bundle => bundle.name === retiredSchedule), false,
     `Official Plugins overview must not offer the retired ${retiredSchedule}`)
