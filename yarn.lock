@@ -161,16 +161,17 @@ __metadata:
     "@deepseek-ai/schemastery": "npm:^3.20.0-alpha.1"
     "@types/node": "npm:^22.20.0"
     "@types/react": "npm:^18"
+    "@types/semver": "npm:^7.7.1"
     react: "npm:18.3.1"
+    semver: "npm:^7.7.3"
     tsdown: "npm:0.22.2"
     typescript: "npm:6.0.3"
     vitest: "npm:4.1.8"
   peerDependencies:
-    "@deepseek-ai/cordis": 4.2.0-alpha.1
-    "@deepseek-ai/dsh-client-ui-primitives": 0.2.3-alpha.2
-    "@deepseek-ai/dsh-credentials": 0.2.3-alpha.2
-    "@deepseek-ai/schemastery": ^3.20.0-alpha.1
-    react: 18.3.1
+    "@deepseek-ai/cordis": ~4.1.0 || ~4.2.0-alpha.1
+    "@deepseek-ai/dsh-credentials": ">=0.2.2-rc.3 <0.3.0-0"
+    "@deepseek-ai/schemastery": ~3.19.0 || ~3.20.0-alpha.1
+    react: ^18.3.1
   languageName: unknown
   linkType: soft
 

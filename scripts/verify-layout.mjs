@@ -147,6 +147,12 @@ for (const [channel, plugin] of [['stable', stablePlugin], ['beta', betaPlugin],
     }
   }
 }
+// Tokens Anywhere is built against Next's runtime; its specs check that its declared DSH range holds that release.
+for (const [name, version] of Object.entries(tokensAnywhere.devDependencies)) {
+  if ((name === '@deepseek-ai/dsh' || name.startsWith('@deepseek-ai/dsh-')) && version !== upstream.channels.next.runtimePackageVersion) {
+    fail(`${tokensAnywhere.name} ${name} must use the recorded next DSH runtime package family`)
+  }
+}
 
 if (nextDesktop.name !== 'dsh-desktop-next' || nextDesktop.private !== true) fail('Next must remain a private experimental package')
 const nextChannel = upstream.channels.next
