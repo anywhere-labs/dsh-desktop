@@ -12,6 +12,12 @@ DSH Next does not load this plugin yet. Where a Desktop serves the `desktopToken
 
 Without DSH Next, the page links the authorize page for the browser, and the refresh token is kept in memory only. After a restart the models keep working, and showing the balance and usage needs another sign-in. Both of Gemini's formats work there too.
 
+## Compatibility
+
+The plugin supports DSH `0.2.2-rc.3` and later 0.2 releases, prereleases included: `engines.dsh` in its `package.json`, `>=0.2.2-rc.3 <0.3.0-0`. Its `@deepseek-ai/dsh-credentials` peer has the same range, which package managers check and DSH releases from before `engines.dsh` read instead. It is built, type-checked and tested against the release its `devDependencies` pin, which is DSH Next's; the other releases in the range are declared, not checked.
+
+DSH checks the range when it installs the plugin and when it starts, and refuses to install or load the plugin outside it. Do not exempt the plugin from the check: update DSH, or use a version of the plugin that supports it.
+
 ## Models
 
 The model list comes from Tokens Anywhere each time it is read: on sign-in, on start, every six hours and on Refresh. It is one `/v1/models?protocol=any` request, which names each model's provider and the endpoints that reach it; a model none of whose endpoints holds a conversation is left out, and so is a model the public price list prices by the second of video. A Tokens Anywhere release that lists no endpoints is read once per format instead. Each provider Tokens Anywhere names is a vendor of its own. DeepSeek, Claude (Anthropic), GPT (OpenAI), Gemini, MiniMax, GLM, Kimi and Grok go through the protocols and thinking settings the plugin keeps for them. A vendor the plugin does not know yet is named by its provider id, gets a route of its own (`tokens-anywhere-<provider>`) in the first protocol that reaches its models, Chat Completions before Anthropic Messages before Gemini's own API, and offers no thinking levels. Models whose provider is not named share the plain `tokens-anywhere` route, listed as Other. Before sign-in, the page names the vendors the site serves that its public price list has a conversation model of.

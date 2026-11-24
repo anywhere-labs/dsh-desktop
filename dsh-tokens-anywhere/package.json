@@ -50,6 +50,7 @@
     "README.i18n.yaml"
   ],
   "engines": {
+    "dsh": ">=0.2.2-rc.3 <0.3.0-0",
     "node": "^22.19.0 || >=24.0.0"
   },
   "scripts": {
@@ -59,11 +60,10 @@
     "check": "yarn run build && node ../scripts/run-parallel.mjs \"yarn run typecheck\" \"yarn run test\""
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "4.2.0-alpha.1",
-    "@deepseek-ai/dsh-client-ui-primitives": "0.2.3-alpha.2",
-    "@deepseek-ai/dsh-credentials": "0.2.3-alpha.2",
-    "@deepseek-ai/schemastery": "^3.20.0-alpha.1",
-    "react": "18.3.1"
+    "@deepseek-ai/cordis": "~4.1.0 || ~4.2.0-alpha.1",
+    "@deepseek-ai/dsh-credentials": ">=0.2.2-rc.3 <0.3.0-0",
+    "@deepseek-ai/schemastery": "~3.19.0 || ~3.20.0-alpha.1",
+    "react": "^18.3.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.2.0-alpha.1",
@@ -84,7 +84,9 @@
     "@deepseek-ai/schemastery": "^3.20.0-alpha.1",
     "@types/node": "^22.20.0",
     "@types/react": "^18",
+    "@types/semver": "^7.7.1",
     "react": "18.3.1",
+    "semver": "^7.7.3",
     "tsdown": "0.22.2",
     "typescript": "6.0.3",
     "vitest": "4.1.8"

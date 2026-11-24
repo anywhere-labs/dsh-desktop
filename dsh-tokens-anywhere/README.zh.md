@@ -12,6 +12,12 @@ DSH Next 暂未加载这个插件。桌面端提供 `desktopTokensAnywhere` Host
 
 没有 DSH Next 时，页面会给出在浏览器中打开授权页的链接，刷新令牌只保存在内存里。重启后模型照常可用，查看余额和用量需要重新登录。Gemini 模型的两种格式在这里同样可用。
 
+## 版本兼容
+
+插件支持 DSH `0.2.2-rc.3` 及之后的 0.2.x 版本，包括预发布版本，以 `package.json` 里的 `engines.dsh` 为准：`>=0.2.2-rc.3 <0.3.0-0`。`@deepseek-ai/dsh-credentials` 的 peer 也写这个范围，供包管理器检查，不支持 `engines.dsh` 的早期 DSH 也改读它。插件针对 `devDependencies` 锁定的版本（DSH Next 用的版本）构建、做类型检查和测试；范围内的其他版本只做声明，不在自动化检查中验证。
+
+DSH 在安装和启动时都会检查这个范围，不满足时拒绝安装或跳过加载。不要为本插件添加版本豁免；更新 DSH，或换用兼容的插件版本。
+
 ## 模型
 
 模型列表每次都从 Tokens Anywhere 读取：登录时、启动时、每 6 小时一次，以及点“刷新”时。读取只发一次 `/v1/models?protocol=any` 请求，它给出每个模型的供应商和能调用它的接口；没有任何对话接口的模型不会配置，公开价格表里按视频秒数计价的模型也不会。不列接口的旧版 Tokens Anywhere 则按每种格式各读一次。Tokens Anywhere 给出的每个供应商各成一组。DeepSeek、Claude（Anthropic）、GPT（OpenAI）、Gemini、MiniMax、GLM、Kimi 和 Grok 按插件为它们准备的接口和思考设置调用。插件还不认识的供应商以供应商 id 命名，有自己的一条路由（`tokens-anywhere-<供应商>`），按 Chat Completions、Anthropic Messages、Gemini 原生接口的顺序选第一个能调用它的模型的接口，不提供思考等级。没有给出供应商的模型共用 `tokens-anywhere` 这条路由，列在“其他”里。登录前，页面只列出站点提供、且公开价格表里有对话模型的供应商。

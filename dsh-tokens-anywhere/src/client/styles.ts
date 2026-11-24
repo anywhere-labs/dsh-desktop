@@ -242,9 +242,9 @@ export function installAnywhereAccountStyles(): () => void {
   if (typeof document === 'undefined' || document.getElementById(STYLE_ID) !== null) return () => {}
   const style = document.createElement('style')
   style.id = STYLE_ID
-  // The upstream loader claims every untagged stylesheet for the next module it materializes, and removes it with that
-  // module; tagged with this plugin's client module id (the package name, as tsdown.config.ts loads it), the sheet is
-  // this plugin's and goes when it unloads.
+  // DSH 0.2.2's loader claims every untagged stylesheet for the next module it materializes, and removes it with that
+  // module; 0.2.3's leaves plugin sheets alone. Tagged with this plugin's client module id (the package name, as
+  // tsdown.config.ts loads it), the sheet is this plugin's on both, and the disposer below removes it on unload.
   style.dataset.plugin = '@agents-anywhere/dsh-tokens-anywhere'
   style.dataset.pluginCss = '@agents-anywhere/dsh-tokens-anywhere/account'
   style.textContent = CSS
