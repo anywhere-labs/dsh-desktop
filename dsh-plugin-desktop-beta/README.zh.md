@@ -181,6 +181,16 @@ npx dsh-plugin-desktop-beta
 
 第三方 Host 插件只需提供普通 `dsh.bundle` patch。包含浏览器 UI 的插件还要发布普通 `dsh.client` 元数据，将 `platform` 设为 `"web"`，并导出 `./client` 产物。上游 Web 客户端模块图会在所有模式下发现它；Electron 不要求单独的客户端构建，也不引入 desktop 专用注册 API。增强模式 contribution 必须面向该显式组合中存在的 service 与 slot，不能假设官方 layout 或 sidebar occupant 拥有它们。
 
+### 无桌面环境的 Linux
+
+在既没有 `DISPLAY` 也没有 `WAYLAND_DISPLAY` 的 Linux 上（例如服务器或 SSH 会话），应用会在初始化界面之前，改用 Chromium 的 headless 平台（`--ozone-platform=headless`）重新启动自己。因此直接运行 `dsh-desktop-beta` 会继续运行，不再因 "Missing X server" 退出。在有显示的环境里自行加上 `--ozone-platform=headless`，也按同样方式启动。这样启动时运行当前选中的 Profile，不建托盘、不开窗口、不弹原生对话框：
+
+- 跳过首次设置，效果与设置页的**跳过**相同，远程控制、插件市场和电脑操作都保持关闭。
+- 自动打开浏览器访问并保存。访问范围只限本机，除非用户之前已允许局域网访问。Host 就绪后，终端会打印登录链接，以及从其他电脑转发端口用的 `ssh -L` 命令。链接带有 Host 的登录凭据，请勿分享。每次 Host 启动都会打印新链接，已经登录过的浏览器保持登录。再运行一次命令，首次启动的进程会再打印一次链接。登录 DeepSeek 账号时打印登录页链接，不打开浏览器。
+- 数据目录与上次不同时，直接使用本次目录并给出提示。用 Ctrl+C 或服务管理器停止时，不再询问正在运行的任务。出错时打印原因、日志文件和故障报告，以状态码 1 退出，不打开恢复助手。安全模式没有浏览器访问，会直接退出。
+
+以 root 运行时，Chromium 在这些代码运行之前就要求加 `--no-sandbox`。系统不允许非特权用户命名空间时，沙箱还要求 `chrome-sandbox` 归 root 所有并带 setuid 位（tar.gz 安装可执行 `sudo chown root:root chrome-sandbox && sudo chmod 4755 chrome-sandbox`），否则同样需要加 `--no-sandbox`。
+
 ## 桌面操作
 
 当 Desktop 窗口没有焦点时，直接用户发起的回合到达 `completed` 会显示原生完成通知；以 `error` 或 `max-tokens` 结束时则显示需要处理的通知。后台任务完成或失败也使用同一条原生注意力路径。取消、阻塞、中断、被终止的任务、插件发起、仅 continuation、turn 不匹配及 subagent 活动都保持静默。点击通知会显示并聚焦窗口。macOS 与 Linux 会递增应用角标，Windows 会闪烁任务栏按钮；显示、聚焦或释放窗口时会清除这些提示。实时生效的 `dsh-desktop-notifications` settings namespace 提供相互独立的 `notifyOnTurnCompletion`、`notifyOnTurnFailure`、`notifyOnJobCompletion` 与 `notifyOnJobFailure` 开关，默认全部开启。通知文案刻意保持通用，不会包含提示词、回复、错误、任务标签、命令、路径、会话 ID、模型或 provider 名称、工具数据及输出。
