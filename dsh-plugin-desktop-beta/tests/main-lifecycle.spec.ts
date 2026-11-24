@@ -867,6 +867,64 @@ it('quits a launch without a display at once, since nobody could answer the task
   })
 })
 
+it('restarts the Host a plugin asks for without a display, with no dialog, and prints the new browser link', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-displayless-restart-request-'))
+  const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+  try {
+    await launchWithoutDisplay(home, async () => {
+      const { dialog } = await import('electron')
+      vi.mocked(dialog.showMessageBox).mockClear()
+      await import('../src/main.ts')
+      await vi.waitFor(() => expect(fixture.start).toHaveBeenCalledOnce())
+      fixture.browserLinks = { localUrl: 'http://127.0.0.1:41234/?token=first', lanUrls: [] }
+      fixture.runtimeOptions!.onChange()
+      // `desktopActions.requestRestart` from a Host plugin.
+      fixture.runtimeOptions!.onRestart()
+      await vi.waitFor(() => expect(fixture.restart).toHaveBeenCalledOnce())
+      expect(fixture.stop).toHaveBeenCalledOnce()
+      expect(dialog.showMessageBox).not.toHaveBeenCalled()
+      expect(fixture.windows).toHaveLength(0)
+      // The restarted Host signs browsers in with a new token.
+      fixture.browserLinks = { localUrl: 'http://127.0.0.1:41234/?token=second', lanUrls: [] }
+      fixture.runtimeOptions!.onChange()
+      expect(written(write)).toContain('token=second')
+    })
+  } finally { write.mockRestore() }
+})
+
+it('still asks on a desktop before restarting the Host a plugin asks for', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-restart-request-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const { dialog } = await import('electron')
+  vi.mocked(dialog.showMessageBox).mockClear().mockResolvedValueOnce({ response: 1, checkboxChecked: false })
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    fixture.runtimeOptions!.onRestart()
+    await vi.waitFor(() => expect(dialog.showMessageBox).toHaveBeenCalledOnce())
+    expect(vi.mocked(dialog.showMessageBox).mock.calls[0]!.at(-1)).toMatchObject({ message: '重启工作环境以应用更改？' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(fixture.stop).not.toHaveBeenCalled()
+    expect(fixture.restart).not.toHaveBeenCalled()
+  } finally { vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it('tells a second launch without a display where the running instance shows its browser link', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-displayless-second-'))
+  fixture.ownsInstance = false
+  const error = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+  try {
+    await launchWithoutDisplay(home, async () => {
+      await import('../src/main.ts')
+      // Started without a desktop, the running instance prints the link in its own output; on a desktop, its settings show it.
+      expect(written(error)).toContain('终端或服务日志')
+      expect(written(error)).toContain('设置里查看')
+      expect(fixture.start).not.toHaveBeenCalled()
+      expect(fixture.windows).toHaveLength(0)
+    })
+  } finally { error.mockRestore() }
+})
+
 it('keeps this data directory without a dialog when a launch without a display finds another one recorded', async () => {
   const home = mkdtempSync(join(tmpdir(), 'next-displayless-home-')), previous = mkdtempSync(join(tmpdir(), 'next-displayless-last-home-'))
   new NextProfiles(previous).ensure('desktop')

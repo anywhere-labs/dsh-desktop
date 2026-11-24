@@ -208,8 +208,10 @@ const language = (): 'zh' | 'en' => windowsLanguage.toLowerCase().startsWith('zh
 const t = (zh: string, en: string): string => language() === 'zh' ? zh : en
 if (!ownsInstance && displayless) {
   windowsLanguage = preferredDesktopLocale(app.getPreferredSystemLanguages())
-  process.stderr.write(`${t('DSH NEXT 已在运行，浏览器访问链接见首次启动的输出。',
-    'DSH NEXT is already running; its first launch printed the browser access link.')}\n`)
+  // This launch cannot tell how the running one started; each kind shows the link in its own place.
+  process.stderr.write(`${t(
+    'DSH NEXT 已在运行。如果它是在无桌面环境中启动的，会在自己的终端或服务日志里再打印一次浏览器访问链接；如果它运行在桌面上，请在它的设置里查看浏览器访问链接。',
+    'DSH NEXT is already running. Started without a desktop, it prints the browser access link again in its own terminal or service log; running on a desktop, it shows the link in its settings.')}\n`)
 }
 /** The official account plugin's embedded Platform page; the Host supplies its grant and the application renderer asks for pages. */
 const platformView = new DesktopPlatformView(join(root, 'lib', 'preload-platform-account.cjs'),
@@ -1064,7 +1066,10 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
       'safe-mode': t('在独立的临时环境中进入安全模式？原有数据和配置会保留。', 'Enter safe mode in a separate temporary environment? Existing data and configuration are preserved.'),
       'normal-mode': t('退出安全模式并重启原 Profile？', 'Exit Safe Mode and restart the original Profile?'),
     }
-    if (!await confirmed(messages[String(type)] ?? t('重启工作环境以应用更改？', 'Restart the environment to apply this change?'))) return
+    // Without a display only a Host plugin can ask for a restart, on behalf of the user in the browser, and no
+    // native dialog could answer it; the restarted Host prints its new browser link.
+    const unattended = displayless && type === 'restart'
+    if (!unattended && !await confirmed(messages[String(type)] ?? t('重启工作环境以应用更改？', 'Restart the environment to apply this change?'))) return
     if (type === 'switch') {
       runtime.profiles.select(next)
       relaunch = relaunchArguments(process.argv.slice(1), false, false)
