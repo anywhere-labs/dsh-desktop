@@ -1,6 +1,7 @@
 {
   "meta": {
     "title": "ACP Access",
-    "description": "Connect applications, scripts and automation tools to DSH through ACP, sharing its sessions, models and tools. Supports a stdio launcher and a public local RPC client API."
+    "description": "Connect applications, scripts and automation tools to DSH through ACP, sharing its sessions, models and tools. Supports a stdio launcher and a public local RPC client API.",
+    "detail": "docs/DETAIL.md"
   }
 }

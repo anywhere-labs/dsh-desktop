@@ -9,6 +9,7 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import z from '@deepseek-ai/schemastery'
 import { AcpBridge } from './bridge.js'
 import { fromCordis } from './acp/log.js'
+import { installManagement } from './management.js'
 import { defaultHome } from './paths.js'
 
 export const name = 'agents-anywhere-acp-bridge'
@@ -52,6 +53,7 @@ function rootOf(ctx: Context): Context {
 export function apply(ctx: Context, config: Config): void {
   const log = fromCordis(ctx.logger)
   const bridge = new AcpBridge(ctx, { home: config.home || defaultHome() }, log)
+  installManagement(ctx, bridge, config.home || defaultHome())
   const active = rootOf(ctx).fiber.state
   ctx.effect(() => {
     const started = bridge.start().catch(error => log.error('acp-bridge: ACP endpoint failed to start', error))

@@ -49,6 +49,11 @@ __metadata:
     "@deepseek-ai/dsh-brand": "npm:0.2.3-alpha.2"
     "@deepseek-ai/dsh-client-connection": "npm:0.2.3-alpha.2"
     "@deepseek-ai/dsh-client-file-upload": "npm:0.2.3-alpha.2"
+    "@deepseek-ai/dsh-client-locale": "npm:0.2.3-alpha.2"
+    "@deepseek-ai/dsh-client-ui-plugin-manager": "npm:0.2.3-alpha.2"
+    "@deepseek-ai/dsh-client-ui-primitives": "npm:0.2.3-alpha.2"
+    "@deepseek-ai/dsh-client-ui-renderer": "npm:0.2.3-alpha.2"
+    "@deepseek-ai/dsh-client-ui-slots": "npm:0.2.3-alpha.2"
     "@deepseek-ai/dsh-commands": "npm:0.2.3-alpha.2"
     "@deepseek-ai/dsh-compaction": "npm:0.2.3-alpha.2"
     "@deepseek-ai/dsh-credentials": "npm:0.2.3-alpha.2"
@@ -102,18 +107,26 @@ __metadata:
     "@deepseek-ai/dsh-workspace": "npm:0.2.3-alpha.2"
     "@deepseek-ai/schemastery": "npm:3.20.0-alpha.1"
     "@types/node": "npm:^24.13.3"
+    "@types/react": "npm:^18"
     "@types/ws": "npm:8.18.1"
+    lightningcss: "npm:1.32.0"
     meshcall: "npm:0.3.0"
+    react: "npm:18.3.1"
     tsdown: "npm:0.22.14"
     tsx: "npm:4.21.0"
     typescript: "npm:5.9.3"
     zod: "npm:^4.1.0"
   peerDependencies:
     "@deepseek-ai/cordis": ~4.0.4 || ~4.1.0 || ~4.2.0-alpha.1
+    "@deepseek-ai/dsh-client-connection": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0"
     "@deepseek-ai/dsh-mcp-client": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0"
     "@deepseek-ai/dsh-scope": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0"
     "@deepseek-ai/dsh-typert-protocol": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0"
     "@deepseek-ai/schemastery": ~3.18.4 || ~3.19.0 || ~3.20.0-alpha.1
+    react: ^18.3.1
+  peerDependenciesMeta:
+    react:
+      optional: true
   bin:
     dsh-acp-bridge: ./lib/stdio.js
   languageName: unknown
