@@ -10,12 +10,15 @@ export type DesktopSetupWizardMarket = 'disabled' | 'community-market' | 'dsh-ma
 
 export interface DesktopSetupWizardNotifications {
   readonly enabled: boolean
+  readonly notifyOnApprovalRequest: boolean
   readonly notifyOnTurnCompletion: boolean
   readonly notifyOnTurnFailure: boolean
   readonly notifyOnJobCompletion: boolean
   readonly notifyOnJobFailure: boolean
   readonly notifyOnScheduleCompletion: boolean
   readonly notifyOnScheduleFailure: boolean
+  readonly notifyOnUserQuestion: boolean
+  readonly showResponsePreview: boolean
 }
 
 /** Every value the launcher needs to persist after Setup completes. */
@@ -60,12 +63,15 @@ const INPUT_KEYS = Object.freeze([
 ] as const)
 const NOTIFICATION_KEYS = Object.freeze([
   'enabled',
+  'notifyOnApprovalRequest',
   'notifyOnTurnCompletion',
   'notifyOnTurnFailure',
   'notifyOnJobCompletion',
   'notifyOnJobFailure',
   'notifyOnScheduleCompletion',
   'notifyOnScheduleFailure',
+  'notifyOnUserQuestion',
+  'showResponsePreview',
 ] as const)
 
 function isObject(value: unknown): value is Record<string, unknown> {

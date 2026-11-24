@@ -78,7 +78,9 @@ it('applies notification edits through the real Settings and Loader without remo
   await start(4)
   await end(4, 'error')
   job('failed')
-  expect(notifyAttention.mock.calls.map(([notification]) => notification.title)).toEqual(['User Turn Failed', 'Background Job Failed'])
+  // Content previews default on, so the user-turn failure carries the session
+  // title (this fixture session has no title events and falls back to its id).
+  expect(notifyAttention.mock.calls.map(([notification]) => notification.title)).toEqual(['direct', 'Background Job Failed'])
   notifyAttention.mockClear()
 
   await ctx.settings.update('desktop-notifications', { notifyOnTurnFailure: false, notifyOnJobFailure: false })
