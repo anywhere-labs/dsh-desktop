@@ -6,5 +6,6 @@
     "lib": ["ES2023", "DOM"],
     "types": ["node"]
   },
-  "include": ["src/**/*.ts"]
+  "include": ["src/**/*.ts"],
+  "exclude": ["src/panel"]
 }

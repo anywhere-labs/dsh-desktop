@@ -113,6 +113,7 @@ await dsh.close()
 | `session/load` | 跟随会话，先回放最近 1000 条消息（用户消息、思考、回复、工具卡片），挂上客户端声明的 MCP 服务器后再响应；正在生成的一步会接着逐字发送 |
 | `session/resume` | 跟随会话但不回放；同样先挂上客户端声明的 MCP 服务器 |
 | `session/list` | Session Controller 的会话列表，去掉子 Agent、空白和已归档的会话，按更新时间倒序，每页 100 条。带 `cwd` 时，它和每个会话的目录都先解析成真实路径再比较（Windows 上不区分大小写）：DSH 按打开时的写法保存目录，例如经过符号链接的路径 |
+| `session/set_title`（ACP 草案） | 仅在 DSH 加载官方标题服务时声明 `sessionCapabilities.title`。调用 Session Controller 的 `rename`，等待标题事件落盘后返回规范化的 `{ title }`；用户指定的标题不会再被自动生成覆盖。支持这条连接中新建、尚未发首条消息的会话，也支持 `session/list` 可见但未在当前连接加载的会话。非法标题返回 `-32602`，不存在或列表不可见的 ID 返回 `-32002`。已有 `session_info_update` 同步已关联客户端和管理面板。SDK 生成类型尚未包含该草案方法，暂用其公开的带解析器注册接口，不加入编辑器专用别名。 |
 | `session/close` | 取消本连接发起、仍在进行的任务，停止跟随，卸下只有本连接声明的 MCP 服务器 |
 | `session/delete` | 在 DSH 里归档这个会话：它从 `session/list` 消失，之后可以在 DSH 里恢复。先取消本连接在这个会话里的消息，并最多等 5 秒让那一轮结束；DSH Desktop 或其他客户端发起的一轮还在运行时，请求失败，会话保留 |
 | `session/fork` | 先校验客户端声明的 MCP 服务器，有误时不复制；DSH 把会话到最后一轮结束为止的历史复制成一个新会话，本连接随后像 `session/resume` 一样跟随它；原会话不变 |
@@ -261,3 +262,9 @@ dsh plugin --profile desktop add "link:$PWD"
 MCP 联调记录（2026-11-18）：在进程内的测试 DSH 里用 DSH 的 MCP 管理器配置 Context7（HTTP 和 stdio 各一个），ACP 会话里的两次工具调用和返回的文档都完整到达客户端。插件自带副本的情况，用 Next 工作区里单独安装的 `mcp-client` 和 `dsh-scope` 代替插件的副本（DSH 用另一份）来验证：两个会话声明同名的 stdio 服务器，各自只看到自己的工具，关闭一个不影响另一个；不经过插件建的作用域、直接挂进 `agent.ctx` 时，第二个会话报服务器名已被占用。
 
 自动化检查和这些联调都没有覆盖：真实模型的回复、真实的 Zed 等编辑器、DSH Desktop 的 Electron 运行环境（包括装进 Profile 的插件挂载客户端声明的 MCP 服务器，以及启动脚本在真实系统上启动 DSH Desktop、它只显示托盘图标）、Windows 命名管道、同时运行多个 DSH，以及自动化检查所用的 0.2.2-rc.4、2026-11-17 联调所用的 0.2.2-rc.3 以外的 DSH 版本。
+
+## 管理面板
+
+Web 客户端通过 `plugins.bundle.config` 注册插件详情页的控制面板，键为包名 `@agents-anywhere/dsh-acp-bridge`。不注册独立的设置分类。面板显示连接状态和启动脚本的诊断。面板没有自己的样式：小节标题、事实列表和状态文字沿用插件详情页（与「来源信息」「版本」相同），表单和控件是官方共享组件。构建时从已安装的官方包编译 `PluginManagerPage.module.css` 和设置表单的 `fields.module.css`，详情页样式只保留用到的类；新版本删掉其中某个类时构建会失败。`./client` 导出的 `node` 条件保留已有 Node API，`default` 指向 DSH 客户端模块加载器需要的浏览器工厂 `lib/panel.js`。面板使用 Connection 的仅 owner 可访问路由 `/api/agents-anywhere/acp`：GET 读取快照，POST 修复启动脚本。卸载插件会撤销路由和客户端贡献。快照不包含端点令牌或对话正文。
+
+连接状态通过仅 owner 可访问的 `/api/agents-anywhere/acp/connections` 读取；`?watch=1` 返回 NDJSON 实时流。建立、初始化、断开连接，以及添加、关闭会话、会话跟随终止或标题变化时推送新快照；会话总数按 ID 去重，包含尚未发送首条消息的 ACP 会话。面板只显示总数；快照和复制的诊断信息里还有各个客户端和它们的会话。客户端名称和版本来自 ACP initialize 上报，缺失时不猜测。流每 20 秒发空行心跳，不轮询状态；客户端 45 秒未收到数据会中断并重连，断线后 2 秒重试并标记旧快照。慢读取方只保留一个排队快照及最新待发状态。关闭面板或卸载插件会释放读取器、订阅和计时器。手动刷新单独读取连接快照，不会覆盖请求期间收到的新推送。

@@ -8,7 +8,7 @@ This is a DSH plugin, published as the npm package `@agents-anywhere/dsh-acp-bri
 
 There are two ways to connect:
 
-- **ACP over stdio**: an ACP application or script runs the generated launcher and exchanges messages over standard input and output. Zed is one such client; a configuration example follows below.
+- **ACP over stdio**: an ACP application or script runs the generated launcher and exchanges messages over standard input and output.
 - **Local RPC client API**: programs use `@agents-anywhere/dsh-acp-bridge/client` to connect to a running DSH and open ACP connections. See [Connecting from other programs](#connecting-from-other-programs).
 
 ## What it does
@@ -53,27 +53,17 @@ The launcher uses the Node.js runtime that DSH itself runs on (DSH Desktop inclu
 
 Set the full launcher path from the table above as the client's Agent command, using its settings for arguments and environment variables. Scripts can also run that command and exchange ACP messages over stdio.
 
-### Example: Zed
+## Management panel
 
-Add an external Agent to Zed's `settings.json`, with `command` set to the full path of the launcher (Zed does not expand `~`):
+Open the control panel on the **Plugins → ACP access** detail page to inspect connections, copy the connection command, and check or repair the launcher. Copied diagnostics include local paths, client information and session titles, but no endpoint tokens or message bodies. Checks do not start an app; a repair makes this DSH write the launcher again.
 
-```json
-{
-  "agent_servers": {
-    "DSH": {
-      "type": "custom",
-      "command": "/Users/you/.agents-anywhere/dsh-acp/bin/dsh-acp",
-      "args": []
-    }
-  }
-}
-```
+The connection and session counts update live; **Refresh** reads a new snapshot manually. A session shared by several clients counts once. The panel does not list the connected clients for now; the copied diagnostics name them and their sessions. Interrupted live updates are marked and reconnect automatically.
 
-Then choose "DSH" in Zed's Agent panel to start a conversation. Other ACP clients likewise take the launcher as their Agent command.
+Clients implementing ACP’s draft `session/set_title` can rename DSH sessions through the bridge. The accepted title is saved in DSH and sent to attached clients. Renaming only a client’s local display does not change the DSH title.
 
 ## Connection and automatic startup
 
-The client connects to the plugin inside DSH. When DSH Desktop is not running, the launcher starts the DSH Desktop that wrote it in the background: it shows only its tray icon and opens no window (earlier DSH Desktop releases open their window as usual), and the launcher connects once the plugin is ready. It waits up to 90 seconds; `--start-timeout <seconds>` changes that, and `--no-start` turns the start off. Put these arguments in the client's launch arguments (for example, Zed's `args`).
+The client connects to the plugin inside DSH. When DSH Desktop is not running, the launcher starts the DSH Desktop that wrote it in the background: it shows only its tray icon and opens no window (earlier DSH Desktop releases open their window as usual), and the launcher connects once the plugin is ready. It waits up to 90 seconds; `--start-timeout <seconds>` changes that, and `--no-start` turns the start off. Put these arguments in the client's launch arguments.
 
 The launcher follows the plugin: it stays when DSH quits, for the next automatic start, and is removed when the plugin is disabled or uninstalled in DSH; the client then reports that the command does not exist. When another running DSH has also loaded the plugin, that DSH takes the launcher over instead.
 

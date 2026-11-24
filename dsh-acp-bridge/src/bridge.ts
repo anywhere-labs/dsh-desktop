@@ -21,6 +21,7 @@ import { processAlive, readRecords, writeRecord, type EndpointRecord } from './e
 import { withdrawLauncher, writeLauncher, type LauncherTarget } from './launcher.js'
 import { endpointName, homeSocket, pipeEndpoint, RPC_SERVICE, type LocalEndpoint } from './paths.js'
 import { AcpRpcService, type AcpServer } from './rpc.js'
+import type { ConnectionState } from './management-contract.js'
 
 function packageVersion(specifier: string): string | undefined {
   try { return String(createRequire(import.meta.url)(specifier).version) || undefined } catch { return undefined }
@@ -74,6 +75,9 @@ export class AcpBridge implements AcpServer {
   private readonly host: DshHost
   private readonly hub: InteractionHub
   private readonly connections = new Set<AcpConnection>()
+  private revision = 0
+  private readonly statusInstanceId = randomUUID()
+  private readonly listeners = new Set<() => void>()
   private server: MeshCallServer | undefined
   private published: { path: string, endpoint: LocalEndpoint } | undefined
   /** What the launcher written by this instance runs, once it was written. */
@@ -95,10 +99,36 @@ export class AcpBridge implements AcpServer {
     }
   }
 
+  get ready(): boolean { return this.published !== undefined && !this.closed }
+
+  connectionState(): ConnectionState {
+    const clients = [...this.connections].map(connection => connection.details())
+    return { instanceId: this.statusInstanceId, revision: this.revision, ready: this.ready, connections: clients.length,
+      sessions: new Set(clients.flatMap(client => client.sessions.map(session => session.id))).size, clients }
+  }
+
+  onConnectionsChanged(listener: () => void): () => void {
+    this.listeners.add(listener)
+    return () => { this.listeners.delete(listener) }
+  }
+
+  private changed = (): void => {
+    this.revision++
+    for (const listener of this.listeners) {
+      try { listener() } catch (error) { this.log.debug('acp-bridge: status listener failed', error) }
+    }
+  }
+
+  async repairLauncher(): Promise<void> {
+    if (!this.launcher || !this.ready) throw new Error('ACP is not ready')
+    await writeLauncher(this.options.home, this.launcher.target)
+  }
+
   async serve(stream: Stream, signal: AbortSignal): Promise<void> {
     if (this.closed) throw new Error('The ACP bridge is closing.')
-    const connection = new AcpConnection(this.host, this.hub, this.log, { version: BRIDGE_VERSION })
+    const connection = new AcpConnection(this.host, this.hub, this.log, { version: BRIDGE_VERSION }, this.changed)
     this.connections.add(connection)
+    this.changed()
     const onAbort = () => { void connection.close().catch(error => this.log.debug('acp-bridge: connection close failed', error)) }
     signal.addEventListener('abort', onAbort, { once: true })
     try {
@@ -106,6 +136,7 @@ export class AcpBridge implements AcpServer {
     } finally {
       signal.removeEventListener('abort', onAbort)
       this.connections.delete(connection)
+      this.changed()
     }
   }
 
@@ -156,6 +187,7 @@ export class AcpBridge implements AcpServer {
     this.published = { path: await writeRecord(home, record), endpoint }
     const path = await writeLauncher(home, launcher)
     this.launcher = { instanceId, target: launcher }
+    this.changed()
     this.log.info(`acp-bridge: ACP clients can start ${path}`)
   }
 
@@ -193,6 +225,7 @@ export class AcpBridge implements AcpServer {
   async close(): Promise<void> {
     if (this.closed) return
     this.closed = true
+    this.changed()
     await this.starting?.catch(() => undefined)
     const published = this.published
     this.published = undefined
