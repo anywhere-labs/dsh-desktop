@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdir, readdir, readFile, realpath, rm } from 'node:fs/promises'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, join, win32 } from 'node:path'
 import { appBundle, desktopLaunch, runPowerShell, type DesktopLaunch } from './autostart.js'
 import { exists } from './cli-launch.js'
 import type { LauncherTarget } from './launcher.js'
@@ -130,10 +130,25 @@ export function applicationLaunch(app: Application, platform = process.platform)
     ...(platform === 'win32' && !app.background ? { hiddenStart: { dshHome: app.dshHome } } : {}) }
 }
 /**
- * Windows lists processes through CIM. The JSON travels as Base64 of its UTF-8 bytes, because Windows PowerShell
- * writes redirected output in the console code page, which would garble non-ASCII paths such as a Chinese user name.
+ * The launcher may be the only process with a registered image name. Fetch command lines through
+ * CIM only for other matching processes. Base64 preserves Unicode paths across the PowerShell console code page.
  */
-const WINDOWS_PROCESSES = '[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress)))'
+const WINDOWS_PROCESSES = `
+$ErrorActionPreference = 'Stop'
+$names = ConvertFrom-Json $env:DSH_ACP_PROCESS_NAMES
+$ids = @(foreach ($name in $names) {
+  foreach ($p in [Diagnostics.Process]::GetProcessesByName($name)) {
+    if ($p.Id -ne [int]$env:DSH_ACP_LAUNCHER_PID) { $p.Id }
+  }
+})
+$rows = @()
+if ($ids.Count) {
+  $filter = ($ids | ForEach-Object { "ProcessId = $_" }) -join " OR "
+  $rows = @(Get-CimInstance Win32_Process -Filter $filter -Property ProcessId,CommandLine | Select-Object ProcessId,CommandLine)
+}
+$json = ConvertTo-Json -InputObject $rows -Compress
+[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($json))
+`
 /** The rows in WINDOWS_PROCESSES' output; a single process comes as an object instead of an array. */
 export function windowsProcessRows(output: string): { pid: number; command: string }[] {
   const listed = JSON.parse(Buffer.from(output.trim(), 'base64').toString('utf8')) as { ProcessId: number; CommandLine: string | null } | { ProcessId: number; CommandLine: string | null }[]
@@ -144,7 +159,9 @@ export async function runningApplications(apps: Application[]): Promise<Applicat
   if (!apps.length) return []
   let rows: { pid: number; command: string }[]
   if (process.platform === 'win32') {
-    const result = await runPowerShell(WINDOWS_PROCESSES, process.env)
+    const names = apps.map(app => win32.basename(app.launcher.runtime).replace(/\.exe$/iu, ''))
+    const result = await runPowerShell(WINDOWS_PROCESSES, { ...process.env,
+      DSH_ACP_PROCESS_NAMES: JSON.stringify([...new Set(names)]), DSH_ACP_LAUNCHER_PID: String(process.pid) })
     if (result.code !== 0) throw new Error(`Cannot list processes: ${result.stderr.trim() || `Windows PowerShell exited ${result.code}`}`)
     rows = windowsProcessRows(result.stdout)
   } else {

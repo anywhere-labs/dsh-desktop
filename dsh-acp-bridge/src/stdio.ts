@@ -114,8 +114,7 @@ function errorText(error: unknown): string {
 
 /** The newest live instance that proves itself; the reason in Chinese when there is none. */
 async function connect(options: Options): Promise<DshConnection> {
-  const settings = await readStartup(options.home)
-  const apps = await applications(options.home)
+  const [settings, apps] = await Promise.all([readStartup(options.home), applications(options.home)])
   const target = selectApplication(apps, options.app, settings.defaultApp)
   const scoped = target ? settings.applications?.[target.id] : undefined
   if (!process.argv.includes('--start-timeout')) options.startTimeout = settings.timeoutSeconds
@@ -138,8 +137,7 @@ async function connect(options: Options): Promise<DshConnection> {
     }
     // Even a pinned editor must not open a second DSH beside another running application.
     const live = await listInstances({ home: options.home })
-    const running = await runningApplications(apps)
-    if (live.length || running.length) {
+    if (live.length || (await runningApplications(apps)).length) {
       process.stderr.write('dsh-acp-bridge: DSH 已运行，等待目标插件就绪；不会启动第二个应用。\n')
       // An app that was still quitting counted as running: once no DSH runs, start one rather than wait out the timeout.
       const stillRunning = async () => {

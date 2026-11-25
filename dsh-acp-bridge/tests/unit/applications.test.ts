@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { copyFile, mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { applicationId, applications, registerApplication, unregisterApplication, defaultApplication, selectApplication, orderedInstances, applicationLaunch, type Application } from '../../src/applications.js'
@@ -53,6 +55,27 @@ test('Windows process rows survive non-ASCII paths and a single process', async 
   const installed = { ...official, launcher: { ...official.launcher, runtime } }
   assert.deepEqual(applicationsInProcesses([installed], rows, 99).map(a => a.kind), ['official'])
   assert.deepEqual(windowsProcessRows(encode({ ProcessId: 9, CommandLine: runtime })), [{ pid: 9, command: runtime }])
+})
+test('Windows finds a registered executable by name then distinguishes its installation path', { skip: process.platform !== 'win32' }, async () => {
+  const { runningApplications } = await import('../../src/applications.js')
+  const root = await mkdtemp(join(tmpdir(), 'acp-process-'))
+  const name = `ACP 测试 ${process.pid}.exe`
+  const runtime = join(root, name)
+  const target = { ...official, launcher: { ...official.launcher, runtime } }
+  const other = { ...next, launcher: { ...next.launcher, runtime: join(root, 'other', name) } }
+  try {
+    await copyFile(join(process.env.SystemRoot!, 'System32', 'cmd.exe'), runtime)
+    assert.deepEqual(await runningApplications([target]), [])
+    const child = spawn(runtime, ['/d', '/q'], { windowsHide: true, stdio: ['pipe', 'ignore', 'ignore'] })
+    await once(child, 'spawn')
+    const exited = once(child, 'exit')
+    try {
+      assert.deepEqual(await runningApplications([other, target]), [target])
+    } finally {
+      child.kill()
+      await exited
+    }
+  } finally { await rm(root, { recursive: true, force: true }) }
 })
 test('first registration remains default across restarts and concurrent registrations; uninstall falls back to Next/Beta', async () => {
   const home = await mkdtemp(join(tmpdir(), 'acp-apps-'))
