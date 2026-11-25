@@ -213,3 +213,29 @@ export async function waitForDsh<T>(connect: () => Promise<T>, retryable: (error
     }
   }
 }
+
+/**
+ * Wait for the plugin of a DSH that already runs: `connect` is retried as in {@link waitForDsh}, and every `checkMs`
+ * (2000 by default) `running` says whether a DSH still runs. Once none does, such as an app that was still quitting
+ * when the launcher looked, the wait ends, so that the launcher starts one instead of waiting for a plugin that cannot come.
+ * @returns the connection, or undefined once no DSH runs.
+ * @throws the last failure when the time is up while a DSH still runs, or the first one `retryable` rejects.
+ */
+export async function waitWhileRunning<T>(connect: () => Promise<T>, retryable: (error: unknown) => boolean, running: () => Promise<boolean>,
+  options: { timeoutMs: number, intervalMs?: number, checkMs?: number }): Promise<T | undefined> {
+  const deadline = Date.now() + options.timeoutMs
+  const checkMs = options.checkMs ?? 2_000
+  let check = Date.now() + checkMs
+  for (;;) {
+    await new Promise(resolve => setTimeout(resolve, options.intervalMs ?? 500))
+    try {
+      return await connect()
+    } catch (error) {
+      if (!retryable(error) || Date.now() >= deadline) throw error
+    }
+    if (Date.now() >= check) {
+      if (!await running()) return undefined
+      check = Date.now() + checkMs
+    }
+  }
+}

@@ -160,6 +160,7 @@ export function applicationsInProcesses(apps: Application[], rows: { pid: number
     const command = row.command.replace(/^"([^"\n]+)"/u, '$1')
     if (!command.startsWith(app.launcher.runtime)) return false
     const rest = command.slice(app.launcher.runtime.length)
-    return (rest === '' || /^\s/u.test(rest)) && !/\.(?:[cm]?js|ts)(?:\s|$)|--type=|--expose-internals/u.test(rest)
+    // The Windows launcher (`dsh-acp.cmd`) quotes its script path, so a closing quote may follow the extension.
+    return (rest === '' || /^\s/u.test(rest)) && !/\.(?:[cm]?js|ts)"?(?:\s|$)|--type=|--expose-internals/u.test(rest)
   }))
 }

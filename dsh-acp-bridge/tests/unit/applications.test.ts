@@ -88,6 +88,8 @@ test('process inspection recognizes a pending app but excludes Node-mode launche
     { pid: 10, command: `${next.launcher.runtime} /plugin/stdio.js` },
     { pid: 11, command: `${beta.launcher.runtime} --expose-internals /host/index.js` },
     { pid: 12, command: `${official.launcher.runtime} --type=renderer` },
+    // The Windows launcher, dsh-acp.cmd, quotes the script path: another editor's launcher is not the app running.
+    { pid: 14, command: `"${official.launcher.runtime}" "C:\\Users\\张三\\dsh-acp-bridge\\lib\\stdio.js" --home "C:\\Users\\张三\\.agents-anywhere\\dsh-acp"` },
   ]
   assert.deepEqual(applicationsInProcesses([next, beta, official], rows, 99), [])
   rows.push({ pid: 13, command: `"${official.launcher.runtime}"` })

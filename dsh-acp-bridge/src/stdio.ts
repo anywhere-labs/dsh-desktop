@@ -19,7 +19,7 @@ import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
 import type { LogContext, LogLevel, RpcLogger } from 'meshcall'
 import { applicationId, applications, selectApplication, applicationLaunch, runningApplications } from './applications.js'
-import { desktopLaunch, startDesktop, waitForDsh, type DesktopLaunch, type StartedDesktop } from './autostart.js'
+import { desktopLaunch, startDesktop, waitForDsh, waitWhileRunning, type DesktopLaunch, type StartedDesktop } from './autostart.js'
 import { connectDsh, DshAcpError, listInstances, type AcpMessage, type DshConnection } from './client.js'
 import { defaultHome } from './paths.js'
 
@@ -141,7 +141,16 @@ async function connect(options: Options): Promise<DshConnection> {
     const running = await runningApplications(apps)
     if (live.length || running.length) {
       process.stderr.write('dsh-acp-bridge: DSH 已运行，等待目标插件就绪；不会启动第二个应用。\n')
-      return waitForDsh(attempt, error => error instanceof DshAcpError, { timeoutMs: options.startTimeout * 1000 })
+      // An app that was still quitting counted as running: once no DSH runs, start one rather than wait out the timeout.
+      const stillRunning = async () => {
+        if ((await listInstances({ home: options.home })).length) return true
+        // Processes that cannot be listed may include a DSH: keep waiting rather than start a second one.
+        try { return (await runningApplications(apps)).length > 0 } catch { return true }
+      }
+      const connection = await waitWhileRunning(attempt, error => error instanceof DshAcpError, stillRunning,
+        { timeoutMs: options.startTimeout * 1000 })
+      if (connection) return connection
+      process.stderr.write('dsh-acp-bridge: 运行中的 DSH 已退出，改为启动。\n')
     }
     // A legacy CLI setting without an application/data-directory binding must not inherit the last writer's home.
     if (settings.mode === 'cli' && !scoped) throw new Error('Please select and save the startup application in the ACP panel again')

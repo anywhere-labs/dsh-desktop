@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import type { ChildProcess, SpawnOptions } from 'node:child_process'
 import { EventEmitter } from 'node:events'
 import test from 'node:test'
-import { appBundle, BACKGROUND_ARGUMENT, desktopLaunch, launchEnvironment, startDesktop, waitForDsh, windowsPowerShell,
+import { appBundle, BACKGROUND_ARGUMENT, desktopLaunch, launchEnvironment, startDesktop, waitForDsh, waitWhileRunning, windowsPowerShell,
   type DesktopLaunch, type RunPowerShell, type ScriptResult, type Spawn } from '../../src/autostart.js'
 
 test('the launcher starts the DSH Desktop whose executable runs it, in the background', () => {
@@ -128,4 +128,17 @@ test('waiting retries until DSH answers and gives up with the last failure', asy
   await assert.rejects(waitForDsh(async () => { other++; throw new Error('refused') }, error => error instanceof NotYet,
     { timeoutMs: 5_000, intervalMs: 5 }), /refused/u)
   assert.equal(other, 1, 'a failure that waiting cannot fix is not retried')
+})
+
+test('waiting for a running DSH stops once none runs, so that the launcher starts one', async () => {
+  let attempts = 0, checks = 0
+  const quit = await waitWhileRunning(async () => { attempts++; throw new NotYet('no plugin') }, error => error instanceof NotYet,
+    async () => ++checks < 2, { timeoutMs: 5_000, intervalMs: 5, checkMs: 20 })
+  assert.equal(quit, undefined, 'an app that quit while the launcher waited is started rather than waited for')
+  assert.equal(checks, 2)
+  assert.ok(attempts > checks, 'the plugin is tried between the checks')
+  assert.equal(await waitWhileRunning(async () => 'connected', error => error instanceof NotYet, async () => true,
+    { timeoutMs: 5_000, intervalMs: 5 }), 'connected')
+  await assert.rejects(waitWhileRunning(async () => { throw new NotYet('still loading') }, error => error instanceof NotYet,
+    async () => true, { timeoutMs: 60, intervalMs: 5, checkMs: 10 }), /still loading/u, 'while DSH runs, the wait ends with the last failure')
 })
