@@ -179,12 +179,14 @@ describe('Desktop Copilot model categories', () => {
   } })
 
   it('sorts by catalog input/output prices, marks the threshold, and keeps unknown-price models stable at the end', async () => {
+    // The marker reads the installed pi-ai catalog, so the flagged id must be one it prices
+    // above the threshold; its `billing.multiplier` stays a decoy the route must ignore.
     const { credentials, controller } = setup()
     vi.mocked(credentials.readRecord).mockResolvedValue(credential({
-      availableModelIds: ['gpt-5.5', 'gpt-6-luna', 'model-f', 'model-e'],
+      availableModelIds: ['gpt-6.2-astra', 'gpt-6-luna', 'model-f', 'model-e'],
     }))
     const fetchModels = vi.fn(async () => new Response(JSON.stringify({ data: [
-      { id: 'gpt-5.5', model_picker_enabled: true, policy: { state: 'enabled' }, model_picker_category: 'powerful', billing: { multiplier: 1 } },
+      { id: 'gpt-6.2-astra', model_picker_enabled: true, policy: { state: 'enabled' }, model_picker_category: 'powerful', billing: { multiplier: 1 } },
       { id: 'gpt-6-luna', model_picker_enabled: true, policy: { state: 'enabled' }, model_picker_category: 'versatile', billing: { multiplier: 20 } },
       { id: 'model-f', model_picker_enabled: true, policy: { state: 'enabled' }, model_picker_category: 'standard' },
       { id: 'model-e', model_picker_enabled: true, model_picker_category: 123, billing: { multiplier: 20 } },
@@ -200,7 +202,7 @@ describe('Desktop Copilot model categories', () => {
     expect(JSON.parse(res.body)).toEqual({
       models: [
         { id: 'gpt-6-luna', category: 'versatile' },
-        { id: 'gpt-5.5', category: 'powerful', highCost: true },
+        { id: 'gpt-6.2-astra', category: 'powerful', highCost: true },
         { id: 'model-f', category: 'standard' },
         { id: 'model-e' },
       ],

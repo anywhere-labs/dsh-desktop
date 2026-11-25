@@ -43,23 +43,6 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@anthropic-ai/sdk@npm:0.124.0":
-  version: 0.124.0
-  resolution: "@anthropic-ai/sdk@npm:0.124.0"
-  dependencies:
-    json-schema-to-ts: "npm:^3.1.1"
-    standardwebhooks: "npm:^1.0.0"
-  peerDependencies:
-    zod: ^3.25.0 || ^4.0.0
-  peerDependenciesMeta:
-    zod:
-      optional: true
-  bin:
-    anthropic-ai-sdk: bin/cli
-  checksum: 10c0/80be864be64319e3a2170c26aa93b3103c4fecf8da7719418a0e98c7c7a06a6bfc986491216126602aa8b19aa3149925b58afe333e447fc5af1d31134ea19e52
-  languageName: node
-  linkType: hard
-
 "@anthropic-ai/sdk@npm:0.129.0":
   version: 0.129.0
   resolution: "@anthropic-ai/sdk@npm:0.129.0"
@@ -7199,63 +7182,23 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@earendil-works/pi-ai@npm:1.4.0":
-  version: 1.4.0
-  resolution: "@earendil-works/pi-ai@npm:1.4.0"
+"@earendil-works/pi-ai@npm:1.6.0":
+  version: 1.6.0
+  resolution: "@earendil-works/pi-ai@npm:1.6.0"
   dependencies:
     "@anthropic-ai/sdk": "npm:0.129.0"
     "@aws-sdk/client-bedrock-runtime": "npm:3.1127.0"
-    "@earendil-works/pi-telemetry": "npm:1.4.0"
-    "@google/genai": "npm:2.21.0"
+    "@earendil-works/pi-schema": "npm:1.6.0"
+    "@earendil-works/pi-telemetry": "npm:1.6.0"
+    "@google/genai": "npm:2.32.0"
     "@smithy/node-http-handler": "npm:4.12.1"
     http-proxy-agent: "npm:9.1.0"
     https-proxy-agent: "npm:9.1.0"
-    openai: "npm:7.19.0"
+    openai: "npm:7.59.0"
     partial-json: "npm:0.1.7"
-    typebox: "npm:1.3.27"
   bin:
     pi-ai: dist/cli.js
-  checksum: 10c0/2484bf538b8c7976eaeb317d2ac6932020a8542c724509e2b73d392c01970d5e021240cc74cf33c84ee8b8178988ec09ef14b17dbc4b476cf86284bac51cf740
-  languageName: node
-  linkType: hard
-
-"@earendil-works/pi-ai@npm:^0.87.1":
-  version: 0.87.1
-  resolution: "@earendil-works/pi-ai@npm:0.87.1"
-  dependencies:
-    "@anthropic-ai/sdk": "npm:0.124.0"
-    "@aws-sdk/client-bedrock-runtime": "npm:3.1127.0"
-    "@earendil-works/pi-telemetry": "npm:^0.87.1"
-    "@google/genai": "npm:2.21.0"
-    "@smithy/node-http-handler": "npm:4.12.1"
-    http-proxy-agent: "npm:9.1.0"
-    https-proxy-agent: "npm:9.1.0"
-    openai: "npm:6.40.0"
-    partial-json: "npm:0.1.7"
-    typebox: "npm:1.3.27"
-  bin:
-    pi-ai: dist/cli.js
-  checksum: 10c0/0153b6481fe1418be36eab8ffd1dabc08a7af53525fc0334013c3cf6ef5d11cac02eba34b34885536248604676c968e4cb920e0e08ce6ed4f2f752590ad7de79
-  languageName: node
-  linkType: hard
-
-"@earendil-works/pi-ai@patch:@earendil-works/pi-ai@npm%3A1.4.0#./patches/pi-ai@1.4.0.patch::locator=deepseek-harness-desktop%40workspace%3A.":
-  version: 1.4.0
-  resolution: "@earendil-works/pi-ai@patch:@earendil-works/pi-ai@npm%3A1.4.0#./patches/pi-ai@1.4.0.patch::version=1.4.0&hash=c57289&locator=deepseek-harness-desktop%40workspace%3A."
-  dependencies:
-    "@anthropic-ai/sdk": "npm:0.129.0"
-    "@aws-sdk/client-bedrock-runtime": "npm:3.1127.0"
-    "@earendil-works/pi-telemetry": "npm:1.4.0"
-    "@google/genai": "npm:2.21.0"
-    "@smithy/node-http-handler": "npm:4.12.1"
-    http-proxy-agent: "npm:9.1.0"
-    https-proxy-agent: "npm:9.1.0"
-    openai: "npm:7.19.0"
-    partial-json: "npm:0.1.7"
-    typebox: "npm:1.3.27"
-  bin:
-    pi-ai: dist/cli.js
-  checksum: 10c0/4002bd471f0f89c4a683b950b0b144b2cd5acc932004ad8d92daccc2f0f64e537d0bcf40ac2c4ddfe671c31aef8389d95f278982864b73940c4f327a0bc043d5
+  checksum: 10c0/202c7fb63e41f77d7e25aaa289bebb8dfda75677d155b375650783d414e782f170497c664573348547e84829cde8afe35914d19263ec29d56c78e41b650d4c5e
   languageName: node
   linkType: hard
 
@@ -7309,17 +7252,17 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@earendil-works/pi-telemetry@npm:1.4.0":
-  version: 1.4.0
-  resolution: "@earendil-works/pi-telemetry@npm:1.4.0"
-  checksum: 10c0/ee9b1c1fe5fc6df6ecb169ad9ed9e3ffebca47872a4403259aaa4e276163964d4aafdc0fe579603d9dd1da3fc544f4f60636ab197db66230942559acf3380d09
+"@earendil-works/pi-schema@npm:1.6.0":
+  version: 1.6.0
+  resolution: "@earendil-works/pi-schema@npm:1.6.0"
+  checksum: 10c0/4221d7aae4a7842c7d952b8071d1a1571497f7a5898c1148fccb0ddd9e4544748cf80658ee747ca666e4aff4d3902e76d73426786de5196169c3d0846cf35dec
   languageName: node
   linkType: hard
 
-"@earendil-works/pi-telemetry@npm:^0.87.1":
-  version: 0.87.1
-  resolution: "@earendil-works/pi-telemetry@npm:0.87.1"
-  checksum: 10c0/8bcbd720043fd7622f431b09b06bdabdaffcb1c87fc645c4a0c277e64211b998b78684b07e7990934cd8330559f25f7c0b2b422a87936f6dfe04f0da7244b616
+"@earendil-works/pi-telemetry@npm:1.6.0":
+  version: 1.6.0
+  resolution: "@earendil-works/pi-telemetry@npm:1.6.0"
+  checksum: 10c0/8af8a9cfdac73add99c2536f3ac0ff7ad28e73a989cb0f8a89ed9f54cc56f15fa7aca3b29e3cf1ce77682c5e79c78db898507aa87c979b6cd4cff1ff46531fa6
   languageName: node
   linkType: hard
 
@@ -7603,9 +7546,9 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@google/genai@npm:2.21.0":
-  version: 2.21.0
-  resolution: "@google/genai@npm:2.21.0"
+"@google/genai@npm:2.32.0":
+  version: 2.32.0
+  resolution: "@google/genai@npm:2.32.0"
   dependencies:
     google-auth-library: "npm:^10.3.0"
     p-retry: "npm:^4.6.2"
@@ -7616,7 +7559,7 @@ __metadata:
   peerDependenciesMeta:
     "@modelcontextprotocol/sdk":
       optional: true
-  checksum: 10c0/08b1a4e8f6ff2e0865a128cb3bdfb9fabd66cfd2e99f6e7a7b827d2a7772ef1783d5856affa4007454941eb421d233bd4a5636b8f31e030feb119d636ce64ba5
+  checksum: 10c0/4cdd7e8992498177d123259b0df292d8a72fb7b0c6d0fa180e7329ae616491396eba6da768a7c1de08a3a1a218e6294c65640a0d80991d75d0a81cc1831e57e5
   languageName: node
   linkType: hard
 
@@ -12323,7 +12266,7 @@ __metadata:
     "@deepseek-ai/dsh-working-directory": "npm:0.2.2-rc.1"
     "@deepseek-ai/dsh-workspace": "npm:0.2.2-rc.1"
     "@deepseek-ai/schemastery": "npm:^3.19.0"
-    "@earendil-works/pi-ai": "npm:^0.87.1"
+    "@earendil-works/pi-ai": "npm:^1.6.0"
     "@electron/asar": "npm:3.4.1"
     "@electron/fuses": "npm:1.8.0"
     "@fontsource-variable/inter": "npm:^5.3.0"
@@ -16255,28 +16198,14 @@ __metadata:
   languageName: node
   linkType: hard
 
-"openai@npm:6.40.0":
-  version: 6.40.0
-  resolution: "openai@npm:6.40.0"
-  peerDependencies:
-    ws: ^8.18.0
-    zod: ^3.25 || ^4.0
-  peerDependenciesMeta:
-    ws:
-      optional: true
-    zod:
-      optional: true
-  checksum: 10c0/fde60f66be934e52c61f0ef864817f4f4ee0bc76ac345599c29a6bfa4ffe5a4563a9e3af5fbc5b9c4bf36a3f06a8b3c0bd9f735f94b8019d6018c6b2ec43c0cf
-  languageName: node
-  linkType: hard
-
-"openai@npm:7.19.0":
-  version: 7.19.0
-  resolution: "openai@npm:7.19.0"
+"openai@npm:7.59.0":
+  version: 7.59.0
+  resolution: "openai@npm:7.59.0"
   peerDependencies:
     "@aws-sdk/credential-provider-node": ">=3.972.0 <4"
     "@smithy/hash-node": ">=4.3.0 <5"
     "@smithy/signature-v4": ">=5.4.0 <6"
+    google-auth-library: ">=9.15.1 <12"
     undici: ">=5 <9"
     ws: ^8.21.0
     zod: ^3.25 || ^4.0
@@ -16287,13 +16216,15 @@ __metadata:
       optional: true
     "@smithy/signature-v4":
       optional: true
+    google-auth-library:
+      optional: true
     undici:
       optional: true
     ws:
       optional: true
     zod:
       optional: true
-  checksum: 10c0/027f21e9dd47bfc76f411775d18e17bb0d7c25a1f29d0bc5832a304b598509b44809b1d33ce231fa7657a9f6d38cda0304c15cd4eb7864aa8f3d50ebd4b7ed52
+  checksum: 10c0/8201615d9f7be6ebf829a2e998ed92c77b42260623332ab1802aae403b968b22b944793bf8690502492ba85cd418f9ecc9a1a2776c374fd69855c2655e926259
   languageName: node
   linkType: hard
 

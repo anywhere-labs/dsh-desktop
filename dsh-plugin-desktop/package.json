@@ -369,7 +369,7 @@
     "@deepseek-ai/dsh-working-directory": "0.2.2-rc.1",
     "@deepseek-ai/dsh-workspace": "0.2.2-rc.1",
     "@deepseek-ai/schemastery": "^3.19.0",
-    "@earendil-works/pi-ai": "^0.87.1",
+    "@earendil-works/pi-ai": "^1.6.0",
     "adm-zip": "^0.6.0",
     "dsh-community-market": "0.1.0-dev.0",
     "dsh-ide-git": "workspace:*",

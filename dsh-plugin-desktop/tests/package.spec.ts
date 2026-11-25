@@ -1163,60 +1163,43 @@ describe('published package surface', () => {
     expect(installedRuntime).not.toContain('const ageCheckActive = Boolean(opts3.minimumReleaseAge);')
   })
 
-  it('patches the pi-ai release the runtime resolves to parse streamed tool arguments once', () => {
-    // dsh-llm-pi-ai requires ^1.3.0 and the channel resolves that to 1.4.0, where the same
-    // hunks still apply. An unpatched pi-ai re-parses the whole accumulated tool-call JSON on
-    // every stream delta, so a long tool call (writing a large file) costs quadratic CPU on
-    // the event loop.
-    const patchPath = './patches/pi-ai@1.4.0.patch'
-    const patchResolution = `patch:@earendil-works/pi-ai@npm%3A1.4.0#${patchPath}`
+  it('resolves one unpatched pi-ai release that accumulates streamed tool arguments', () => {
+    // dsh-llm-pi-ai requires ^1.3.0 and Desktop pins ^1.6.0; the root resolution puts both on the
+    // same release so a single hoisted copy serves the stream. pi-ai accumulates tool-call
+    // arguments through an incremental parser from 1.6.0 on, which retires the local patch that
+    // deleted the per-delta full re-parse — that re-parse cost quadratic CPU on a long tool call.
     const lockfile = readFileSync(new URL('yarn.lock', workspaceRoot), 'utf8')
-    const patch = readFileSync(new URL(patchPath, workspaceRoot), 'utf8').replaceAll('\r\n', '\n')
-    // Desktop's own catalog pin holds the hoisted slot, so the runtime copy stays nested.
-    const piAiRoot = new URL('node_modules/@deepseek-ai/dsh-llm-pi-ai/node_modules/@earendil-works/pi-ai/', packageRoot)
+    const piAiRoot = new URL('node_modules/@earendil-works/pi-ai/', packageRoot)
     const installedPiAi = JSON.parse(readFileSync(new URL('package.json', piAiRoot), 'utf8')) as { version?: unknown }
 
     expect(workspaceManifest.resolutions).toMatchObject({
-      '@earendil-works/pi-ai@npm:^1.3.0': patchResolution,
-      '@earendil-works/pi-ai@npm:1.4.0': patchResolution,
+      '@earendil-works/pi-ai': '1.6.0',
+      // Kept from the retired 0.2.2-rc.5 runtime family: inert now that pi-telemetry only arrives
+      // through a pi-ai copy, which declares its exact sibling version.
       '@earendil-works/pi-telemetry@npm:^1.1.0': '1.1.0',
     })
-    expect(lockfile).toContain(`"@earendil-works/pi-ai@${patchResolution}::`)
-    expect(installedPiAi.version).toBe('1.4.0')
+    expect(manifest.dependencies?.['@earendil-works/pi-ai']).toBe('^1.6.0')
+    expect(installedPiAi.version).toBe('1.6.0')
 
-    // Every pi-ai that can reach a stream is patched; the remaining npm resolution is the
-    // hoisted copy pinned by Desktop's own `^0.87.1` dependency, which only feeds the GitHub
-    // Copilot model catalog read in src/copilot-authorization-route.ts and never streams.
     expect([...lockfile.matchAll(/resolution: "@earendil-works\/pi-ai@npm:([^"]+)"/gu)].map(match => match[1]).sort())
-      .toEqual(['0.87.1', '1.4.0'])
-    expect(manifest.dependencies?.['@earendil-works/pi-ai']).toBe('^0.87.1')
-
-    // pi-telemetry is only ever pulled in by a pi-ai copy, so it resolves to the exact version
-    // that copy declares. The root `^1.1.0` guard above is inert in the merged graph: the
-    // retired 0.2.2-rc.5 runtime family was its only requester.
+      .toEqual(['1.6.0'])
+    expect(lockfile).not.toMatch(/@earendil-works\/pi-ai@patch:/u)
     expect([...lockfile.matchAll(/resolution: "@earendil-works\/pi-telemetry@npm:([^"]+)"/gu)].map(match => match[1]).sort())
-      .toEqual(['0.87.1', '1.4.0'])
+      .toEqual(['1.6.0'])
+    // A nested copy under the streaming adapter would mean two catalogs can disagree.
+    expect(existsSync(new URL('node_modules/@deepseek-ai/dsh-llm-pi-ai/node_modules/@earendil-works/pi-ai/', packageRoot))).toBe(false)
 
-    const files = [...patch.matchAll(/^diff --git a\/(\S+) b\//gmu)].map(match => match[1])
-    expect(files).toEqual([
-      'dist/api/anthropic-messages.js',
-      'dist/api/bedrock-converse-stream.js',
-      'dist/api/mistral-conversations.js',
-      'dist/api/openai-completions.js',
-      'dist/api/openai-responses-shared.js',
-      'dist/api/pi-messages.js',
-    ])
-    for (const section of patch.split(/^diff --git /mu).slice(1)) {
-      const file = section.slice(2, section.indexOf(' '))
-      const installed = readFileSync(new URL(file, piAiRoot), 'utf8').replaceAll('\r\n', '\n')
-      for (const hunk of section.split(/^@@ [^\n]*\n/mu).slice(1)) {
-        const lines = hunk.split('\n').filter(line => /^[ +-]/u.test(line))
-        const before = lines.filter(line => !line.startsWith('+')).map(line => line.slice(1)).join('\n')
-        const after = lines.filter(line => !line.startsWith('-')).map(line => line.slice(1)).join('\n')
-        expect(before).toMatch(/parseStreamingJson\(/u)
-        expect(installed, file).toContain(after)
-        expect(installed, file).not.toContain(before)
-      }
+    for (const file of [
+      'anthropic-messages.js',
+      'bedrock-converse-stream.js',
+      'mistral-conversations.js',
+      'openai-completions.js',
+      'openai-responses-shared.js',
+      'pi-messages.js',
+    ]) {
+      const source = readFileSync(new URL(`dist/api/${file}`, piAiRoot), 'utf8')
+      expect(source, file).not.toContain('parseStreamingJson')
+      expect(source, file).toMatch(/\.arguments\s*=\s*[\w.]+\.append\(/u)
     }
   })
 

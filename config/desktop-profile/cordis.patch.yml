@@ -20,7 +20,7 @@
   name: "@deepseek-ai/dsh-agent-default-model"
   config:
     provider: github-copilot
-    model: gpt-6-sol
+    model: gpt-6-luna
 - id: ui-settings-account
   name: "@deepseek-ai/dsh-client-ui-settings-account"
   config:
@@ -45,6 +45,21 @@
   config:
     providers:
       github-copilot:
+        # 对话框的候选 = 本路由实际服务的模型；models 一旦给出就是「替换」目录而不是「追加」
+        # （上游 catalog.ts resolveRouteModels:898）。未写的字段按 id 从已安装目录铺底继承
+        # （catalog.ts:948/951），所以协议、窗口、compat 不必重述：gemini-4-neon 走
+        # openai-completions，其余三条走 openai-responses。列表外的模型会话端不再服务；
+        # 设置页照旧读 Copilot 实时 /models，保持服务端真实（src/copilot-authorization-route.ts）。
+        # 显示名沿用服务端写法；目录里存的是不带厂商前缀的名字（catalog.ts:950 允许覆盖）。
+        models:
+          - id: gemini-4-neon
+            name: Google Gemini 4 Neon
+          - id: gpt-6-luna
+            name: OpenAI GPT-6 Luna
+          - id: gpt-6.2-astra
+            name: OpenAI GPT-6.2 Astra
+          - id: gpt-6.2-sol
+            name: OpenAI GPT-6.2 Sol
         maxRequestImageBytes: 1048576
         maxRequestBytes: 2097152
       amazon-bedrock: {}
@@ -77,26 +92,30 @@
 # 必须显式 disabled:false 才能启用（2026-10-23 离线合成 probe 实证）。
 # compaction-basic：自动/溢出压缩后端。modelPolicies 按 provider+model 精确匹配
 # （config.ts resolveTargetPolicy），未列出的模型走 0.8/0.16 默认。
-# 三个大窗口模型的窗口 × 0.8 都远大于 2MiB 字节闸（约 50 万 token），默认策略
-# 永远先不触发，请求体一路涨到 pi-ai 的 maxRequestBytes 才报错。0.35 让压缩先于
-# 字节闸：kimi-k3 1048576×0.35 ≈ 36.7 万 token，gpt-6-sol/gpt-6-luna 1000000×0.35
-# = 35 万 token，按 ≈3.5~4.5 字节/token 即 ≈1.2~1.6MiB。
-# 窗口取自本机会话日志 request/context 实测值。
+# 会话可选的四个模型窗口都在 100 万上下，× 0.8 远大于 2MiB 字节闸（约 50 万 token），
+# 默认策略永远先不触发，请求体一路涨到 pi-ai 的 maxRequestBytes 才报错。0.35 让压缩先于
+# 字节闸：gpt-6-luna 1000000×0.35 = 35 万 token，gemini-4-neon 1048576×0.35 ≈ 36.7 万，
+# gpt-6.2-astra/gpt-6.2-sol 1050000×0.35 ≈ 36.8 万，按 ≈3.5~4.5 字节/token 即 ≈1.2~1.6MiB。
+# 窗口取自 pi-ai 1.6.0 的 dist/providers/data/github-copilot.json。
 - id: compaction-basic
   name: "@deepseek-ai/dsh-compaction-basic"
   disabled: false
   config:
     modelPolicies:
       - provider: github-copilot
-        model: kimi-k3
-        thresholdRatio: 0.35
-        retainRatio: 0.08
-      - provider: github-copilot
-        model: gpt-6-sol
+        model: gemini-4-neon
         thresholdRatio: 0.35
         retainRatio: 0.08
       - provider: github-copilot
         model: gpt-6-luna
+        thresholdRatio: 0.35
+        retainRatio: 0.08
+      - provider: github-copilot
+        model: gpt-6.2-astra
+        thresholdRatio: 0.35
+        retainRatio: 0.08
+      - provider: github-copilot
+        model: gpt-6.2-sol
         thresholdRatio: 0.35
         retainRatio: 0.08
 # tool-result-pruner：压缩前修剪 >8KB 工具输出（byte-guard-recovery 的第 1 级也依赖它）。
