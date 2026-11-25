@@ -37,6 +37,6 @@ export async function cliLaunch(executable: string, platform: NodeJS.Platform, d
   const check = await checkProfile(dshHome, profile)
   if (!check.valid) throw new Error(check.reason)
   return { name: `DSH (${profile})`, command: executable,
-    args: ['--expose-internals', entry, '--profile', profile, '--no-open', '--port', '0'], waitForExit: false,
+    args: ['--expose-internals', entry, '--profile', profile, '--no-open', '--port', '0'], waitForExit: false, windowsHide: true,
     environment: { ELECTRON_RUN_AS_NODE: '1', DSH_HOME: resolve(dshHome) }, cwd: join(dshHome, 'profiles', profile) }
 }

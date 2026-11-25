@@ -37,6 +37,8 @@ export interface ManagementState {
   runtimeVersion?: string
   profile: string
   host: string
+  /** The Host's platform as Node.js names it (`win32`, `darwin`, `linux`). */
+  platform: string
   launcher: string
   settings: StartupSettings
   desktopAvailable: boolean

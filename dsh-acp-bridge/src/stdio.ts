@@ -9,7 +9,6 @@
  * protocol messages only; diagnostics go to stderr.
  */
 
-import type { ChildProcess } from 'node:child_process'
 import { join } from 'node:path'
 import { realpath } from 'node:fs/promises'
 import { withStartupLock } from './startup-lock.js'
@@ -20,7 +19,7 @@ import { createRequire } from 'node:module'
 import { createInterface } from 'node:readline'
 import type { LogContext, LogLevel, RpcLogger } from 'meshcall'
 import { applicationId, applications, selectApplication, applicationLaunch, runningApplications } from './applications.js'
-import { desktopLaunch, startDesktop, waitForDsh, type DesktopLaunch } from './autostart.js'
+import { desktopLaunch, startDesktop, waitForDsh, type DesktopLaunch, type StartedDesktop } from './autostart.js'
 import { connectDsh, DshAcpError, listInstances, type AcpMessage, type DshConnection } from './client.js'
 import { defaultHome } from './paths.js'
 
@@ -33,7 +32,8 @@ const USAGE = `用法：dsh-acp-bridge [选项]
 
 通过 stdio 将 ACP 应用、脚本和自动化工具连接到 DeepSeek Harness。
 DSH 需要已启用插件 ${PLUGIN}。DSH Desktop 没有运行时，
-根据面板的默认应用设置启动，等插件就绪后再连接；官方应用可能显示窗口。
+根据面板的默认应用设置启动，等插件就绪后再连接。官方应用在 Windows 上
+隐藏窗口启动，在 macOS 上会显示窗口。
 
 选项：
   --app <应用>           固定应用：next、beta、official 或面板中的应用 ID
@@ -153,7 +153,7 @@ async function connect(options: Options): Promise<DshConnection> {
     if (!launch) throw new Error('没有找到正在运行的 DSH。请打开 DSH 并启用 ACP 插件。')
     strict = Boolean(target)
     if (target && scoped?.mode === 'cli') profileDirectory = await realpath(join(scoped.dshHome, 'profiles', scoped.profile))
-    if (target && !target.background && scoped?.mode !== 'cli') process.stderr.write('dsh-acp-bridge: 官方桌面端启动时可能显示窗口。\n')
+    if (target && !target.background && scoped?.mode !== 'cli' && !launch.hiddenStart) process.stderr.write('dsh-acp-bridge: 官方桌面端启动时可能显示窗口。\n')
     return startAndConnect(options, launch, attempt)
   })
 }
@@ -162,19 +162,20 @@ async function connect(options: Options): Promise<DshConnection> {
 async function startAndConnect(options: Options, launch: DesktopLaunch, attempt: () => Promise<DshConnection>): Promise<DshConnection> {
   const record = (ok: boolean, message: string) => writePrivateJson(options.home, 'last-start.json', { at: new Date().toISOString(), ok, message }).catch(() => {})
   process.stderr.write(`dsh-acp-bridge: 没有正在运行的 DSH，正在后台启动 ${launch.name}，最多等待 ${options.startTimeout} 秒…\n`)
-  let child: ChildProcess
+  let started: StartedDesktop
   try {
-    child = await startDesktop(launch)
+    started = await startDesktop(launch)
   } catch (error) {
     await record(false, `Cannot start ${launch.name}: ${errorText(error)}`)
     throw new Error(`无法启动 ${launch.name}：${errorText(error)}。请手动打开 DSH，并在 DSH 中启用插件 ${PLUGIN}。`)
   }
+  if (started.notHidden !== undefined) process.stderr.write(`dsh-acp-bridge: 无法隐藏启动 ${launch.name}（${started.notHidden}），已直接启动，可能显示窗口。\n`)
   try {
     const connection = await waitForDsh(attempt, error => error instanceof DshAcpError, { timeoutMs: options.startTimeout * 1_000 })
     await record(true, `${launch.name}: ACP connected`)
     return connection
   } catch (error) {
-    if (launch.environment?.ELECTRON_RUN_AS_NODE === '1') child.kill('SIGTERM')
+    if (launch.environment?.ELECTRON_RUN_AS_NODE === '1') started.child?.kill('SIGTERM')
     await record(false, `${launch.name}: ACP did not become ready within ${options.startTimeout}s`)
     if (error instanceof DshAcpError && error.code === 'no-instance') {
       throw new Error(`已启动 ${launch.name}，但 ${options.startTimeout} 秒内没有等到插件就绪。请打开 ${launch.name} 查看：`

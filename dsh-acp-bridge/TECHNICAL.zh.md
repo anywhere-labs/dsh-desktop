@@ -98,7 +98,8 @@ await dsh.close()
 
 - 已登记应用提供自己的程序路径和数据目录，不依赖执行启动脚本的运行时。没有应用登记时保留旧版 Electron 启动脚本的行为。
 - macOS 经 LaunchServices 启动 Next/Beta：`open -n -g <应用包> --env DSH_HOME=<数据目录> --args --next-background`。官方应用不加 `-n` 和 `--args --next-background`。作为客户端的子进程启动时，应用会把客户端当作 responsible process，本地网络访问会失效（anywhere-labs/deepseek-harness-desktop#1515）。`-n` 让已经运行的实例也收到这个参数。
-- Windows 和 Linux 以分离方式直接启动可执行文件，仅 Next/Beta 使用 `--next-background` 参数；环境变量去掉 `ELECTRON_RUN_AS_NODE`、`ELECTRON_NO_ATTACH_CONSOLE` 和 `NODE_OPTIONS`，应用按自己的方式启动。
+- Windows 和 Linux 以分离方式直接启动可执行文件，仅 Next/Beta 使用 `--next-background` 参数；环境变量去掉 `ELECTRON_RUN_AS_NODE`、`ELECTRON_NO_ATTACH_CONSOLE` 和 `NODE_OPTIONS`，应用按自己的方式启动。窗口按应用自己的方式显示：隐藏第一个窗口（`windowsHide`）会吞掉 Next/Beta 第一次点托盘时打开的窗口。
+- Windows 上没有后台启动的应用（官方桌面端）改由资源管理器启动。Windows PowerShell 请桌面的文件夹视图以显示方式 `SW_HIDE` 执行 `ShellExecute`：应用的第一个窗口保持隐藏；应用是资源管理器而不是编辑器的子进程，拿不走编辑器的前台。之后从托盘或再次启动显示窗口都照常。应用拿到的是资源管理器的环境变量，所以只有这份环境给出的数据目录（用户的 `DSH_HOME`，否则系统的，否则 `~\.dsh`）与登记的一致时才这样启动；以管理员身份运行的编辑器启动的应用不带管理员权限。不一致，或 PowerShell、资源管理器不可用时，直接启动应用，可能显示窗口，启动脚本会说明原因。
 - DSH Desktop（Next 和 Beta）带 `--next-background` 启动时照常启动 Host，但只显示托盘图标、不打开窗口；托盘不可用时仍然打开窗口。已经运行的实例收到带这个参数的第二次启动时，不聚焦窗口。这个参数不会带进之后的重启。较早的版本会忽略它并打开窗口。
 - 随后每 0.5 秒连接一次，遇到 `DshAcpError`（还没有实例或暂时连不上）就继续等，最多等 `--start-timeout` 秒（默认 90；DSH Desktop 的 Host 启动上限默认 60 秒）。等到超时说明插件没有加载：DSH 当前的 Profile 没有启用插件，或者 DSH 停在首次设置、恢复或升级。
 
@@ -241,7 +242,7 @@ corepack yarn workspace @agents-anywhere/dsh-acp-bridge check
 - 配置与 DSH 端切换模型的同步（模型值用官方格式，也接受早期的 `provider/model`）、智能体团队协作开关的双向同步（按基础 bundle 的方式挂载智能体团队）、斜杠命令；
 - 客户端声明的 MCP 服务器（用测试里的本地 stdio 服务器）：新会话第一条消息时挂上、只属于这个会话、关闭后进程结束；声明有误时在创建或复制会话之前返回参数错误；服务器起不来时消息报错并给出名称；两个客户端共用同一个声明、同名不同配置被拒绝；`session/load` 时挂上、断开连接后卸下；
 - 令牌校验、端点身份证明、超长路径改用临时目录、启动脚本、不连接 DSH 的 `--version`，以及启动脚本遇到迟到的未处理拒绝后继续转发；
-- 自动启动 DSH Desktop：各平台的启动方式、去掉 Node 模式的环境变量、`open` 失败和可执行文件不存在、插件在启动脚本找过一次之后才发布记录时照样连上；插件或 DSH 不在时启动脚本给出的提示（在 shell 里实际运行生成的脚本；Windows 脚本只检查文本）；启动脚本在 DSH 退出时保留、只卸载插件时删除，以及两个 DSH 共用主目录时由另一个接手；启动描述随启动脚本写入、保留、交接和删除，按它直接启动能连上 DSH；
+- 自动启动 DSH Desktop：各平台的启动方式、Windows 上经资源管理器隐藏窗口启动以及它无法启动时改为直接启动、Next/Beta 的窗口从不隐藏、Windows 进程列表中的非 ASCII 路径、去掉 Node 模式的环境变量、`open` 失败和可执行文件不存在、插件在启动脚本找过一次之后才发布记录时照样连上；插件或 DSH 不在时启动脚本给出的提示（在 shell 里实际运行生成的脚本；Windows 脚本只检查文本）；启动脚本在 DSH 退出时保留、只卸载插件时删除，以及两个 DSH 共用主目录时由另一个接手；启动描述随启动脚本写入、保留、交接和删除，按它直接启动能连上 DSH；
 - 公开客户端（从构建产物加载）：经它的流使用 ACP SDK、原始调用、对无法证明身份的端点在发出令牌前就拒绝、只提供正在运行的契约版本 1 实例、DSH 退出后立即失败、除 Node.js 和 meshcall 外没有其他依赖；以及固定下来的契约值；
 - 客户端在创建会话、打开会话或执行中途被杀死、`session/close`、重复 load 之后不残留跟随，DSH 不受影响。
 
@@ -277,4 +278,4 @@ ACP 目录中的 `startup.json` 以 0600 权限原子替换，DSH 关闭后启�
 
 端点契约 v1 新增可选 `application` 信息。`apps/<id>.json` 持久保存每个安装位置、数据目录、Profile 的身份；ID 由规范化的程序路径、数据目录和 Profile 路径计算。`applications.lock` 独立于 `startup.lock`，避免编辑器等待启动时阻塞插件登记。`startup.json.defaultApp` 保存全机默认应用，可选的 `applications[id]` 绑定 CLI 模式、Profile 和数据目录。不可用的登记被排除；停用插件且没有同身份实例时移除登记，退出 DSH 时保留。卸载时启动脚本也可交给已登记但未运行的应用。
 
-stdio 按默认应用、相同 Profile 目录、稳定身份排序；`--app` 严格限定目标。公开 `connectDsh` 为兼容保留原来的最新实例优先默认行为，新增可选 `application` 和 `strictApplication`。启动锁内再次检查端点并按已登记的程序路径检查系统进程；应用已运行但插件未就绪时只等待。macOS 官方应用不使用 `-n` 或 Next 参数，数据目录通过 `open --env` 显式传递。不扫描未登记的安装。真实安装包的焦点行为仍须图形验收。
+stdio 按默认应用、相同 Profile 目录、稳定身份排序；`--app` 严格限定目标。公开 `connectDsh` 为兼容保留原来的最新实例优先默认行为，新增可选 `application` 和 `strictApplication`。启动锁内再次检查端点并按已登记的程序路径检查系统进程；Windows 上经 Windows PowerShell 从 CIM 读取进程列表，以 UTF-8 JSON 的 Base64 传回，因为 PowerShell 重定向输出使用控制台代码页，会弄乱非 ASCII 路径。应用已运行但插件未就绪时只等待。macOS 官方应用不使用 `-n` 或 Next 参数，数据目录通过 `open --env` 显式传递。不扫描未登记的安装。真实安装包的焦点行为仍须图形验收。

@@ -41,6 +41,7 @@ test('CLI launch uses the selected existing Web Profile and the installed runtim
     assert.equal(launch.environment?.ELECTRON_RUN_AS_NODE, '1')
     assert.equal(launch.environment?.DSH_HOME, root)
     assert.equal(launch.cwd, directory)
+    assert.equal(launch.windowsHide, true, 'the CLI runs Electron in Node mode, without windows of its own')
     assert.deepEqual(JSON.parse(await readFile(join(directory, 'package.json'), 'utf8')), pkg)
     pkg.dsh.profile.bundles.pop()
     await writeFile(join(directory, 'package.json'), JSON.stringify(pkg))

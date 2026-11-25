@@ -36,7 +36,7 @@ export async function managementState(bridge: AcpBridge, home: string): Promise<
   const selectedApp = defaultApplication(apps, settings.defaultApp)
   const live = bridge.connectionState()
   return { applications: apps, ...(selectedApp ? { defaultApp: selectedApp.id } : {}), live, ready: live.ready, connections: live.connections, sessions: live.sessions, bridgeVersion: info.bridgeVersion,
-    ...(info.runtimeVersion ? { runtimeVersion: info.runtimeVersion } : {}), profile: basename(process.cwd()), host: desktop?.name ?? 'DSH CLI', launcher,
+    ...(info.runtimeVersion ? { runtimeVersion: info.runtimeVersion } : {}), profile: basename(process.cwd()), host: desktop?.name ?? 'DSH CLI', platform: process.platform, launcher,
     settings, desktopAvailable: Boolean(desktop),
     cliAvailable: Boolean(process.versions.electron && cli && await exists(cli)), profiles: await listProfiles(resolveDshHome()), checks,
     ...(lastStart ? { lastStart } : {}) }

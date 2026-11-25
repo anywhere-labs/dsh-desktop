@@ -204,7 +204,9 @@ export function Panel({ language }: { language: string }) {
       </div>)}
       {applicationError && <p className={detail.reason} role="alert">{applicationError}</p>}
       {state.settings.enabled && !launchable && <p className={detail.reason}>{t('暂无可用的启动配置，请先手动启动 DSH。', 'No startup configuration is available. Start DSH manually.')}</p>}
-      {state.settings.enabled && selectedApp && !selectedApp.background && <p className={field.hint}>{t('启动时可能打开窗口。', 'Startup may open a window.')}</p>}
+      {/* Windows starts such an app with its window hidden (autostart.ts); elsewhere it opens a window. */}
+      {state.settings.enabled && selectedApp && !selectedApp.background && state.platform !== 'win32'
+        && <p className={field.hint}>{t('启动时可能打开窗口。', 'Startup may open a window.')}</p>}
       <DisclosureRow title={t('高级设置', 'Advanced settings')} icon={<IconChevronDownOutlineRegular />} previewChevron={false}
         open={advancedOpen} expandable expandOnRowClick onToggle={() => { setAdvancedOpen(!advancedOpen) }}>
         <div className={detail.detailSections}>

@@ -36,6 +36,23 @@ test('official launch does not force a second instance or pass Next flags; each 
   assert.ok(b.args.includes('--next-background'))
   assert.ok(b.args.includes(`DSH_HOME=${beta.dshHome}`))
   assert.deepEqual(applicationLaunch(official, 'win32')?.args, [])
+  assert.deepEqual(applicationLaunch(official, 'win32')?.hiddenStart, { dshHome: official.dshHome }, 'on Windows explorer starts it hidden')
+  assert.equal(applicationLaunch(official, 'darwin')?.hiddenStart, undefined)
+  for (const background of [next, beta]) {
+    const launch = applicationLaunch(background, 'win32')!
+    assert.deepEqual([launch.args, launch.hiddenStart, launch.windowsHide], [['--next-background'], undefined, undefined],
+      'Next/Beta start without a window by themselves')
+  }
+})
+test('Windows process rows survive non-ASCII paths and a single process', async () => {
+  const { windowsProcessRows, applicationsInProcesses } = await import('../../src/applications.js')
+  const runtime = 'C:\\Users\\张三\\AppData\\Local\\Programs\\DeepSeek Harness\\DeepSeek Harness.exe'
+  const encode = (value: unknown) => `${Buffer.from(JSON.stringify(value), 'utf8').toString('base64')}\r\n`
+  const rows = windowsProcessRows(encode([{ ProcessId: 7, CommandLine: `"${runtime}" ` }, { ProcessId: 8, CommandLine: null }]))
+  assert.deepEqual(rows, [{ pid: 7, command: `"${runtime}" ` }, { pid: 8, command: '' }])
+  const installed = { ...official, launcher: { ...official.launcher, runtime } }
+  assert.deepEqual(applicationsInProcesses([installed], rows, 99).map(a => a.kind), ['official'])
+  assert.deepEqual(windowsProcessRows(encode({ ProcessId: 9, CommandLine: runtime })), [{ pid: 9, command: runtime }])
 })
 test('first registration remains default across restarts and concurrent registrations; uninstall falls back to Next/Beta', async () => {
   const home = await mkdtemp(join(tmpdir(), 'acp-apps-'))

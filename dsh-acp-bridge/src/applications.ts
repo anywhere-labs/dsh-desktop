@@ -4,7 +4,7 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { mkdir, readdir, readFile, realpath, rm } from 'node:fs/promises'
 import { basename, dirname, join } from 'node:path'
-import { appBundle, desktopLaunch, type DesktopLaunch } from './autostart.js'
+import { appBundle, desktopLaunch, runPowerShell, type DesktopLaunch } from './autostart.js'
 import { exists } from './cli-launch.js'
 import type { LauncherTarget } from './launcher.js'
 import type { EndpointRecord } from './endpoint.js'
@@ -125,17 +125,32 @@ export function applicationLaunch(app: Application, platform = process.platform)
   return { ...launch, name: app.name, environment: { DSH_HOME: app.dshHome },
     args: platform === 'darwin'
       ? [...(app.background ? ['-n'] : []), '-g', appBundle(app.launcher.runtime)!, '--env', `DSH_HOME=${app.dshHome}`, ...(app.background ? ['--args', '--next-background'] : [])]
-      : app.background ? ['--next-background'] : [] }
+      : app.background ? ['--next-background'] : [],
+    // Without a background start of its own the app shows a window; on Windows explorer starts it hidden instead.
+    ...(platform === 'win32' && !app.background ? { hiddenStart: { dshHome: app.dshHome } } : {}) }
+}
+/**
+ * Windows lists processes through CIM. The JSON travels as Base64 of its UTF-8 bytes, because Windows PowerShell
+ * writes redirected output in the console code page, which would garble non-ASCII paths such as a Chinese user name.
+ */
+const WINDOWS_PROCESSES = '[Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes((Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress)))'
+/** The rows in WINDOWS_PROCESSES' output; a single process comes as an object instead of an array. */
+export function windowsProcessRows(output: string): { pid: number; command: string }[] {
+  const listed = JSON.parse(Buffer.from(output.trim(), 'base64').toString('utf8')) as { ProcessId: number; CommandLine: string | null } | { ProcessId: number; CommandLine: string | null }[]
+  return [listed].flat().map(p => ({ pid: p.ProcessId, command: p.CommandLine ?? '' }))
 }
 /** Inspect main application processes before launching, including those whose plugin is not ready yet. */
 export async function runningApplications(apps: Application[]): Promise<Application[]> {
   if (!apps.length) return []
-  const { stdout } = process.platform === 'win32'
-    ? await exec('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | Select-Object ProcessId,CommandLine | ConvertTo-Json -Compress'])
-    : await exec('ps', ['-axo', 'pid=,args='])
-  const rows: { pid: number; command: string }[] = process.platform === 'win32'
-    ? [JSON.parse(stdout)].flat().map(p => ({ pid: p.ProcessId, command: p.CommandLine ?? '' }))
-    : stdout.split('\n').map(line => { const m = /^\s*(\d+)\s+(.*)$/u.exec(line); return { pid: Number(m?.[1]), command: m?.[2] ?? '' } })
+  let rows: { pid: number; command: string }[]
+  if (process.platform === 'win32') {
+    const result = await runPowerShell(WINDOWS_PROCESSES, process.env)
+    if (result.code !== 0) throw new Error(`Cannot list processes: ${result.stderr.trim() || `Windows PowerShell exited ${result.code}`}`)
+    rows = windowsProcessRows(result.stdout)
+  } else {
+    const { stdout } = await exec('ps', ['-axo', 'pid=,args='])
+    rows = stdout.split('\n').map(line => { const m = /^\s*(\d+)\s+(.*)$/u.exec(line); return { pid: Number(m?.[1]), command: m?.[2] ?? '' } })
+  }
   return applicationsInProcesses(apps, rows)
 }
 

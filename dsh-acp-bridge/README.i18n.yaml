@@ -1,4 +1,4 @@
 # Bilingual-pair consistency record. Both languages carry equal authority.
 # Update both files and record their Git blob hashes after editing either side.
-README.md: c37d890665bbf205bc719edc21e5457ba511d211
-README.zh.md: 36348839161268da0853ec3b4031d828538f79c1
+README.md: f1be12f5bb89e36bbe368539b54e597a26268b13
+README.zh.md: 40a02c99edac3de605a6c01a344d63853c7ee0f4

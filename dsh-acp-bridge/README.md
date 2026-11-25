@@ -65,7 +65,7 @@ Settings live in `startup.json` in the ACP directory, survive DSH shutdown, and 
 
 ## Connection and automatic startup
 
-The client connects to the plugin inside DSH. When no known DSH is running, it starts the selected default application and waits for its plugin. Next/Beta receive background arguments; official Desktop and older releases may open a window. It waits up to 90 seconds; `--start-timeout <seconds>` overrides the saved timeout, and `--no-start` disables startup. Put these arguments in the editor's launch arguments.
+The client connects to the plugin inside DSH. When no known DSH is running, it starts the selected default application and waits for its plugin. Next/Beta receive background arguments; older releases ignore them and open a window. The official Desktop has no background start: on Windows, Explorer starts it with its window hidden; on macOS it opens a window. It waits up to 90 seconds; `--start-timeout <seconds>` overrides the saved timeout, and `--no-start` disables startup. Put these arguments in the editor's launch arguments.
 
 The launcher follows the plugin: it stays when DSH quits, for the next automatic start, and is removed when the plugin is disabled or uninstalled in DSH; the client then reports that the command does not exist. When another running DSH has also loaded the plugin, that DSH takes the launcher over instead.
 
@@ -137,7 +137,7 @@ Building from source, link installation, the protocol and the tests are describe
 
 Next, Beta and official Desktop share the ACP directory but register their own executable, versions, data directory and Profile. The **Preferences** and **Startup** settings on the plugin detail page apply machine-wide. The first registration becomes the default; opening another app does not change it. If the default is unavailable, available Next/Beta registrations are preferred.
 
-Connections prefer the default app, then another instance with the same Profile directory, then other running instances. Auto-start happens only when no known DSH is running. A running app whose plugin is not ready is awaited, not launched again. Next/Beta receive background arguments (older releases still need an update); official Desktop may show a window and receives neither Next arguments nor a forced-new-instance flag.
+Connections prefer the default app, then another instance with the same Profile directory, then other running instances. Auto-start happens only when no known DSH is running. A running app whose plugin is not ready is awaited, not launched again. Next/Beta receive background arguments (older releases still need an update). Official Desktop receives neither Next arguments nor a forced-new-instance flag; on Windows, Explorer starts it with its window hidden, and on macOS it shows a window.
 
 Keep the editor command unchanged and set args to `["--app", "next"]`, `["--app", "beta"]`, `["--app", "official"]`, or copy the application ID arguments from the panel. Multiple installations or Profiles of one kind require an ID. A pinned editor never falls back to another app or starts a second DSH alongside a running one; quit the other app or change the selection first.
 
