@@ -3,7 +3,7 @@ import { setImmediate } from 'node:timers/promises'
 import test from 'node:test'
 import { callManagement, ManagementError, managementErrorText, readManagementWhenReady } from '../../src/panel/management-client.js'
 
-const state = { live: { ready: true }, checks: [] }
+const state = { settings: { enabled: true }, live: { ready: true }, checks: [] }
 test('initial read waits for the Host route to register without parsing a plain-text 404', async t => {
   t.mock.timers.enable({ apis: ['setTimeout'] })
   let calls = 0
@@ -28,7 +28,7 @@ test('unmount cancels the readiness wait and writes are never retried', async t 
   await rejected
   t.mock.timers.tick(20_000)
   assert.equal(calls, 1)
-  await assert.rejects(callManagement({ action: 'repair' }), (error: unknown) => error instanceof ManagementError && error.kind === 'unavailable')
+  await assert.rejects(callManagement({ action: 'save' }), (error: unknown) => error instanceof ManagementError && error.kind === 'unavailable')
   assert.equal(calls, 2)
 })
 
@@ -40,8 +40,8 @@ test('real errors remain visible and non-JSON responses have localized messages'
     assert.match(managementErrorText(cause, 'en'), /Could not read/u)
     return true
   })
-  t.mock.method(globalThis, 'fetch', async () => Response.json({ error: 'ACP is not ready' }, { status: 400 }))
-  await assert.rejects(callManagement({ action: 'repair' }), /ACP is not ready/u)
+  t.mock.method(globalThis, 'fetch', async () => Response.json({ error: 'Invalid timeout' }, { status: 400 }))
+  await assert.rejects(callManagement({ action: 'save' }), /Invalid timeout/u)
   t.mock.method(globalThis, 'fetch', async () => new Response('not json'))
   await assert.rejects(callManagement(), (cause: unknown) => cause instanceof ManagementError && cause.kind === 'invalid')
 })

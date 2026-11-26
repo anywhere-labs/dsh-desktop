@@ -46,6 +46,7 @@
       "inject": [
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-workspace",
         "@deepseek-ai/dsh-client-locale"
       ]
     }
@@ -63,6 +64,7 @@
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4 || ~4.1.0 || ~4.2.0-alpha.1",
     "@deepseek-ai/dsh-client-connection": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0",
+    "@deepseek-ai/dsh-home-paths": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0",
     "@deepseek-ai/dsh-mcp-client": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0",
     "@deepseek-ai/dsh-scope": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0",
     "@deepseek-ai/dsh-typert-protocol": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0",
@@ -100,7 +102,9 @@
     "@deepseek-ai/dsh-client-ui-plugin-manager": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-client-ui-primitives": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-client-ui-renderer": "0.2.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-settings": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-client-ui-slots": "0.2.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-commands": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-compaction": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-credentials": "0.2.3-alpha.2",

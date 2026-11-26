@@ -11,6 +11,7 @@ import { chmod, lstat, mkdir, mkdtemp, rm } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
+import { resolveDshHome } from '@deepseek-ai/dsh-home-paths'
 import { fileURLToPath } from 'node:url'
 import { AcpConnection } from './acp/connection.js'
 import { DshHost } from './acp/host.js'
@@ -18,6 +19,7 @@ import { InteractionHub } from './acp/interactions.js'
 import type { Log } from './acp/log.js'
 import { CONTRACT_VERSION, PROTOCOL, type BridgeInfo } from './contract.js'
 import { processAlive, readRecords, writeRecord, type EndpointRecord } from './endpoint.js'
+import { applications, identifyApplication, registerApplication, unregisterApplication, type Application } from './applications.js'
 import { withdrawLauncher, writeLauncher, type LauncherTarget } from './launcher.js'
 import { endpointName, homeSocket, pipeEndpoint, RPC_SERVICE, type LocalEndpoint } from './paths.js'
 import { AcpRpcService, type AcpServer } from './rpc.js'
@@ -80,6 +82,8 @@ export class AcpBridge implements AcpServer {
   private readonly listeners = new Set<() => void>()
   private server: MeshCallServer | undefined
   private published: { path: string, endpoint: LocalEndpoint } | undefined
+  /** The app this instance runs in, once it was identified. */
+  private applicationId: string | undefined
   /** What the launcher written by this instance runs, once it was written. */
   private launcher: { instanceId: string, target: LauncherTarget } | undefined
   private closed = false
@@ -177,18 +181,37 @@ export class AcpBridge implements AcpServer {
     const runtime = electron && process.env.ELECTRON_RUN_AS_NODE !== '1' ? 'node' : process.execPath
     const launcher: LauncherTarget = {
       runtime, electron: electron && runtime === process.execPath,
-      script: fileURLToPath(new URL('./stdio.js', import.meta.url)),
+      script: fileURLToPath(new URL('./stdio.js', import.meta.url)), home, dshHome: resolveDshHome(),
     }
+    const application = await this.register(launcher)
     const record: EndpointRecord = {
       version: CONTRACT_VERSION, protocol: 'meshcall', service: RPC_SERVICE, instanceId, pid: process.pid,
-      startedAt: new Date().toISOString(), endpoint, token, bridgeVersion: BRIDGE_VERSION,
-      ...(RUNTIME_VERSION ? { runtimeVersion: RUNTIME_VERSION } : {}), launcher,
+      startedAt: new Date().toISOString(), endpoint, token, bridgeVersion: BRIDGE_VERSION, profileDirectory: process.cwd(),
+      ...(RUNTIME_VERSION ? { runtimeVersion: RUNTIME_VERSION } : {}), launcher, ...(application ? { application } : {}),
     }
     this.published = { path: await writeRecord(home, record), endpoint }
     const path = await writeLauncher(home, launcher)
     this.launcher = { instanceId, target: launcher }
     this.changed()
     this.log.info(`acp-bridge: ACP clients can start ${path}`)
+  }
+
+  /**
+   * Register the app this DSH runs in, for connections to prefer and editors to start. Clients reach this DSH
+   * without it, so a failure is only logged. The record names the app all the same: a registration from before
+   * stays the one it belongs to.
+   */
+  private async register(launcher: LauncherTarget): Promise<Application | undefined> {
+    let application: Application | undefined
+    try {
+      application = await identifyApplication(launcher, process.cwd(), BRIDGE_VERSION)
+      if (!application) return undefined
+      this.applicationId = application.id
+      await registerApplication(this.options.home, application)
+    } catch (error) {
+      this.log.warn('acp-bridge: could not register this app for connections and automatic startup', error)
+    }
+    return application
   }
 
   /**
@@ -202,7 +225,12 @@ export class AcpBridge implements AcpServer {
     this.launcher = undefined
     const others = (await readRecords(this.options.home)).map(stored => stored.record)
       .filter(record => record.instanceId !== launcher.instanceId && processAlive(record.pid))
-    const succession = await withdrawLauncher(this.options.home, launcher.target, others)
+    if (this.applicationId && !others.some(record => record.application?.id === this.applicationId)) {
+      await unregisterApplication(this.options.home, this.applicationId)
+    }
+    const registered = await applications(this.options.home)
+    const heirs = [...others, ...registered.map(app => ({ launcher: app.launcher }) as EndpointRecord)]
+    const succession = await withdrawLauncher(this.options.home, launcher.target, heirs)
     if (succession.action === 'write') this.log.info(`acp-bridge: the launcher now runs ${succession.target.script}`)
     else if (succession.action === 'remove') this.log.info('acp-bridge: removed the launcher with the plugin')
   }

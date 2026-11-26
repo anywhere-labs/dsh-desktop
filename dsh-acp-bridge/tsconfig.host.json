@@ -3,9 +3,18 @@
   "compilerOptions": {
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
-    "lib": ["ES2023", "DOM"],
-    "types": ["node"]
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src/**/*.ts"],
-  "exclude": ["src/panel"]
+  "include": [
+    "src/**/*.ts"
+  ],
+  "exclude": [
+    "src/panel"
+  ]
 }

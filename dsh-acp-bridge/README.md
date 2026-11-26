@@ -55,15 +55,17 @@ Set the full launcher path from the table above as the client's Agent command, u
 
 ## Management panel
 
-Open the control panel on the **Plugins → ACP access** detail page to inspect connections, copy the connection command, and check or repair the launcher. Copied diagnostics include local paths, client information and session titles, but no endpoint tokens or message bodies. Checks do not start an app; a repair makes this DSH write the launcher again.
+Open the control panel on the **Plugins → ACP access** detail page to inspect connections, copy the connection command, configure automatic startup and its timeout (1–600 seconds, 90 by default), and check or repair the launcher. Copied diagnostics include local paths, client information and session titles, but no endpoint tokens or message bodies. Checks do not start an app; repair refreshes the shared transport launcher without changing the default application.
 
-The connection and session counts update live; **Refresh** reads a new snapshot manually. A session shared by several clients counts once. The panel does not list the connected clients for now; the copied diagnostics name them and their sessions. Interrupted live updates are marked and reconnect automatically.
+The connection and session counts update live; **Refresh** reads a new snapshot manually. A session shared by several clients counts once. The panel does not list the connected clients for now; the copied diagnostics name them and their sessions. Interrupted live updates are marked and reconnect automatically. Refreshing keeps unsaved settings.
 
 Clients implementing ACP’s draft `session/set_title` can rename DSH sessions through the bridge. The accepted title is saved in DSH and sent to attached clients. Renaming only a client’s local display does not change the DSH title.
 
+Settings live in `startup.json` in the ACP directory, survive DSH shutdown, and are shared by editors using that launcher. Explicit `--no-start` disables automatic startup; `--start-timeout` overrides the saved timeout. Running instances are reused first; concurrent editor startup requests are serialized. The latest startup outcome is stored in `last-start.json`.
+
 ## Connection and automatic startup
 
-The client connects to the plugin inside DSH. When DSH Desktop is not running, the launcher starts the DSH Desktop that wrote it in the background: it shows only its tray icon and opens no window (earlier DSH Desktop releases open their window as usual), and the launcher connects once the plugin is ready. It waits up to 90 seconds; `--start-timeout <seconds>` changes that, and `--no-start` turns the start off. Put these arguments in the client's launch arguments.
+The client connects to the plugin inside DSH. When no known DSH is running, it starts the selected default application and waits for its plugin. Next/Beta receive background arguments; older releases ignore them and open a window. The official Desktop has no background start: on Windows, Explorer starts it with its window hidden; on macOS it opens a window. It waits up to 90 seconds; `--start-timeout <seconds>` overrides the saved timeout, and `--no-start` disables startup. Put these arguments in the editor's launch arguments.
 
 The launcher follows the plugin: it stays when DSH quits, for the next automatic start, and is removed when the plugin is disabled or uninstalled in DSH; the client then reports that the command does not exist. When another running DSH has also loaded the plugin, that DSH takes the launcher over instead.
 
@@ -83,7 +85,7 @@ The launcher can be run directly in a terminal:
 ~/.agents-anywhere/dsh-acp/bin/dsh-acp --check
 ```
 
-`--check` connects to the running DSH (it never starts one) and prints the DSH version, the plugin version and whether approvals and questions are connected. `--list` lists the DSH processes it can connect to; with several running, it connects to the most recently started one, and `--instance <instance ID>` picks another. `--version` prints only the plugin version. With the environment variable `DSH_ACP_DEBUG=1`, connection diagnostics are written to standard error.
+`--check` connects to the running DSH (it never starts one) and prints the DSH version, the plugin version and whether approvals and questions are connected. `--list` lists the DSH processes it can connect to; with several running, it prefers the default application chosen in the panel, and `--instance <instance ID>` picks another. `--version` prints only the plugin version. With the environment variable `DSH_ACP_DEBUG=1`, connection diagnostics are written to standard error.
 
 The plugin's own log lines are in the DSH log and start with `acp-bridge`.
 
@@ -130,3 +132,13 @@ Programs that want the automatic start but cannot run the launcher (on Windows, 
 ## Development
 
 Building from source, link installation, the protocol and the tests are described in the [technical notes](TECHNICAL.md).
+
+### Multiple applications and pinned editors
+
+Next, Beta and official Desktop share the ACP directory but register their own executable, versions, data directory and Profile. The **Preferences** and **Startup** settings on the plugin detail page apply machine-wide. The first registration becomes the default; opening another app does not change it. If the default is unavailable, available Next/Beta registrations are preferred.
+
+Connections prefer the default app, then another instance with the same Profile directory, then other running instances. Auto-start happens only when no known DSH is running. A running app whose plugin is not ready is awaited, not launched again. Next/Beta receive background arguments (older releases still need an update). Official Desktop receives neither Next arguments nor a forced-new-instance flag; on Windows, Explorer starts it with its window hidden, and on macOS it shows a window.
+
+Keep the editor command unchanged and set args to `["--app", "next"]`, `["--app", "beta"]`, `["--app", "official"]`, or copy the application ID arguments from the panel. Multiple installations or Profiles of one kind require an ID. A pinned editor never falls back to another app or starts a second DSH alongside a running one; quit the other app or change the selection first.
+
+The list contains applications that have loaded the updated plugin and whose files still exist. Older plugins remain connectable as running instances; update and load the plugin in each app before choosing a default. Repairing the launcher does not change the default. Retained CLI settings bind both the data directory and Profile to an application. Unbound legacy CLI settings require saving again rather than guessing a data directory.

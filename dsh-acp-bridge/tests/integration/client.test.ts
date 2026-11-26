@@ -155,3 +155,31 @@ test('the client entry needs only Node.js and meshcall, and the launcher is buil
   assert.ok(bare.has('meshcall'))
   assert.match(await readFile(join(lib, 'stdio.js'), 'utf8'), /from "\.\/client\.js"/u, 'launcher tests exercise the public client too')
 })
+
+test('application selection reaches the preferred Host even when another app starts later; pinned selection cannot cross apps', { timeout: 60_000 }, async () => {
+  const first = await startHost()
+  const second = await startHost({ acpHome: first.acpHome })
+  const { applicationId } = await import('../../src/applications.js')
+  try {
+    const records = (await readRecords(first.acpHome)).map(s => s.record)
+    const older = records.find(r => r.instanceId !== records[0]!.instanceId)!
+    const newer = records[0]!
+    const makeApp = (r: EndpointRecord, kind: 'next' | 'beta'): import('../../src/applications.js').Application => ({
+      id: applicationId(kind, kind, kind), kind, name: kind, bundleId: kind, version: '1', bridgeVersion: r.bridgeVersion,
+      dshHome: `/${kind}`, profileDirectory: `/${kind}/profiles/desktop`, profile: 'desktop', background: true,
+      registeredAt: r.startedAt, launcher: r.launcher!,
+    })
+    const next = makeApp(older, 'next'), beta = makeApp(newer, 'beta')
+    await writeRecord(first.acpHome, { ...older, application: next, profileDirectory: next.profileDirectory })
+    await writeRecord(first.acpHome, { ...newer, application: beta, profileDirectory: beta.profileDirectory })
+    const rpc = await load()
+    const connection = await rpc.connectDsh({ home: first.acpHome, application: next })
+    assert.equal(connection.record.instanceId, older.instanceId)
+    await connection.close()
+    await rm((await readRecords(first.acpHome)).find(s => s.record.instanceId === older.instanceId)!.path)
+    await assert.rejects(rpc.connectDsh({ home: first.acpHome, application: next, strictApplication: true }), { code: 'no-instance' })
+    const fallback = await rpc.connectDsh({ home: first.acpHome, application: next })
+    assert.equal(fallback.record.instanceId, newer.instanceId)
+    await fallback.close()
+  } finally { await second.close(); await first.close() }
+})
