@@ -210,19 +210,29 @@ describe('public Desktop version check', () => {
     })).resolves.toBeNull()
   })
 
-  it('silently ignores malformed JSON and non-200 statuses', async () => {
+  it('silently ignores malformed JSON and bodyless non-200 statuses', async () => {
     await expect(checkForStableUpdate({
       currentVersion: '2.0.0',
       request: async () => new Response('{'),
     })).resolves.toBeNull()
     await expect(checkForStableUpdate({
       currentVersion: '2.0.0',
-      request: async () => new Response('unavailable', { status: 503 }),
-    })).resolves.toBeNull()
-    await expect(checkForStableUpdate({
-      currentVersion: '2.0.0',
       request: async () => new Response(null, { status: 304 }),
     })).resolves.toBeNull()
+  })
+
+  it.each([false, true])('cancels unread non-200 bodies (cancel rejects: %s)', async cancelRejects => {
+    const cancel = vi.fn(async () => {
+      if (cancelRejects) throw new Error('cleanup failed')
+    })
+    const body = new ReadableStream<Uint8Array>({ cancel })
+
+    await expect(checkForStableUpdate({
+      currentVersion: '2.0.0',
+      request: async () => new Response(body, { status: 503 }),
+    })).resolves.toBeNull()
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(body.locked).toBe(false)
   })
 
   it('silently ignores network failure and caller cancellation', async () => {
@@ -241,16 +251,44 @@ describe('public Desktop version check', () => {
   })
 
   it('silently ignores declared and streamed oversized responses', async () => {
+    for (const init of [
+      { headers: { 'content-length': String(MAX_VERSION_RESPONSE_BYTES + 1) } },
+      {},
+    ] as const) {
+      const cancel = vi.fn()
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new Uint8Array(MAX_VERSION_RESPONSE_BYTES + 1))
+        },
+        cancel,
+      })
+
+      await expect(checkForStableUpdate({
+        currentVersion: '2.0.0',
+        request: async () => new Response(body, init),
+      })).resolves.toBeNull()
+      expect(cancel).toHaveBeenCalledOnce()
+      expect(body.locked).toBe(false)
+    }
+  })
+
+  it.each([false, true])('cancels invalid UTF-8 responses (cancel rejects: %s)', async cancelRejects => {
+    const cancel = vi.fn(async () => {
+      if (cancelRejects) throw new Error('cleanup failed')
+    })
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new Uint8Array([0xff]))
+      },
+      cancel,
+    })
+
     await expect(checkForStableUpdate({
       currentVersion: '2.0.0',
-      request: async () => new Response('{}', {
-        headers: { 'content-length': String(MAX_VERSION_RESPONSE_BYTES + 1) },
-      }),
+      request: async () => new Response(body),
     })).resolves.toBeNull()
-    await expect(checkForStableUpdate({
-      currentVersion: '2.0.0',
-      request: async () => new Response('x'.repeat(MAX_VERSION_RESPONSE_BYTES + 1)),
-    })).resolves.toBeNull()
+    expect(cancel).toHaveBeenCalledOnce()
+    expect(body.locked).toBe(false)
   })
 
   it.each(['2.0', 'v2.0.0', '2.0.0-rc.1'])('skips invalid installed version %s before requesting', async currentVersion => {
