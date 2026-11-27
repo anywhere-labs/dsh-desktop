@@ -28,10 +28,13 @@ $expectedLog = @{
   'denied' = @('Cannot create', '(Win32 error 5:', 'Setup cancelled: the installation location is not writable')
   'incomplete' = @('Staged files are missing: resources\app.asar; the installation folder is unchanged')
   'outer-instance' = @('Staged the new version in')
+  'directory-label-only' = @('Staged the new version in')
+  'low-target' = @('Setup cancelled: file integrity 4096 below Medium')
+  'low-executable' = @('Setup cancelled: file integrity 4096 below Medium', '\Smoke.exe for ')
   'low-integrity' = @('runs at integrity level 4096, below Medium (8192)', 'Setup cancelled: it runs below Medium integrity')
 }
 # Cases that replace the installation.
-$succeeding = @('first', 'upgrade', 'transient-lock', 'outer-instance')
+$succeeding = @('first', 'upgrade', 'transient-lock', 'outer-instance', 'directory-label-only')
 # Failed directory operations the Setup log directory keeps: phase pattern and number of attempts.
 $expectedOperations = @{
   'locked' = @('^backup: Windows error: (5|32|33)$', 10)
@@ -60,7 +63,7 @@ try {
   [System.IO.File]::WriteAllText($brokenArchive, 'invalid archive')
   $account = '*' + [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value
 
-  foreach ($mode in @('first', 'upgrade', 'transient-lock', 'locked', 'locked-stage', 'missing-stage', 'restore-conflict', 'broken', 'cancelled', 'denied', 'incomplete', 'outer-instance', 'low-integrity')) {
+  foreach ($mode in @('first', 'upgrade', 'transient-lock', 'locked', 'locked-stage', 'missing-stage', 'restore-conflict', 'broken', 'cancelled', 'denied', 'incomplete', 'outer-instance', 'low-integrity', 'low-target', 'low-executable', 'directory-label-only')) {
     $caseRoot = Join-Path $scratch $mode
     $target = Join-Path $caseRoot 'Application'
     $logDir = Join-Path $caseRoot 'installer-logs'
@@ -75,9 +78,22 @@ try {
       [IO.File]::WriteAllText($oldDeep, 'old long path asset')
     }
     $probe = Join-Path $caseRoot 'probe.exe'
-    $caseArchive = switch ($mode) { 'broken' { $brokenArchive } 'incomplete' { $incompleteArchive } default { $archive } }
+    if ($mode -in @('low-target', 'directory-label-only')) {
+      # Keep Setup at Medium. Only OI makes newly created files inherit the label.
+      $probe = Join-Path $scratch "$mode-setup.exe"
+      $label = if ($mode -eq 'low-target') { '(OI)(CI)Low' } else { '(CI)Low' }
+      Invoke-Checked 'icacls.exe' @($caseRoot, '/setintegritylevel', $label)
+    }
+    # The Low destination must be rejected before 7-Zip can report the broken archive.
+    $caseArchive = switch ($mode) {
+      'low-target' { $brokenArchive }
+      'broken' { $brokenArchive }
+      'incomplete' { $incompleteArchive }
+      default { $archive }
+    }
     $compileArgs = @('/V2', "/DOUTPUT_FILE=$probe", "/DPAYLOAD_FILE=$caseArchive", "/DTARGET_DIR=$target", "/DLOG_DIR=$logDir", "/DDSH_SEVENZIP_PATH=$SevenZip")
     if ($mode -eq 'missing-stage') { $compileArgs += '/DMISSING_STAGE' }
+    if ($mode -eq 'low-executable') { $compileArgs += '/DLOW_EXECUTABLE' }
     if ($mode -eq 'locked-stage') { $compileArgs += '/DLOCKED_STAGE' }
     if ($mode -eq 'restore-conflict') { $compileArgs += '/DRESTORE_CONFLICT' }
     if ($mode -eq 'cancelled') { $compileArgs += '/DCANCELLED' }
