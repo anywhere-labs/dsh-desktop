@@ -42,7 +42,7 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      product: ${{ steps.scope.outputs.product }}
+      scope: ${{ steps.scope.outputs.scope }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -69,13 +69,13 @@ jobs:
           node --test scripts/market-dependency-direction.test.mjs
           node scripts/verify-market-dependency-direction.mjs
           if [[ "$EVENT_NAME" == "workflow_dispatch" || -z "$BASE_SHA" || "$BASE_SHA" =~ ^0+$ ]]; then
-            product=true
+            scope=full
           else
             git fetch --no-tags --depth=1 origin "$BASE_SHA"
             git diff --check "$BASE_SHA" "$HEAD_SHA"
-            product="$(git diff --name-only -z "$BASE_SHA" "$HEAD_SHA" | node scripts/classify-ci-changes.mjs)"
+            scope="$(git diff --no-renames --name-only -z "$BASE_SHA" "$HEAD_SHA" | node scripts/classify-ci-changes.mjs)"
           fi
-          echo "product=$product" >> "$GITHUB_OUTPUT"
+          echo "scope=$scope" >> "$GITHUB_OUTPUT"
 
   # Product gate: a documentation-only change already passed diff validation in `changes`.
   # The nightly schedule runs only the universal macOS smoke.
@@ -85,26 +85,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Documentation-only gate
-        if: needs.changes.outputs.product == 'false'
+        if: needs.changes.outputs.scope == 'docs'
         run: echo "Documentation-only change; product build and tests are not required."
       - uses: actions/checkout@v6
-        if: needs.changes.outputs.product == 'true'
+        if: needs.changes.outputs.scope != 'docs'
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
           submodules: recursive
       - uses: actions/setup-node@v6
-        if: needs.changes.outputs.product == 'true'
+        if: needs.changes.outputs.scope != 'docs'
         with:
           node-version: 24.22.3
-      - if: needs.changes.outputs.product == 'true'
+      - if: needs.changes.outputs.scope != 'docs'
         run: corepack enable
       - name: Resolve Yarn cache folder
-        if: needs.changes.outputs.product == 'true'
+        if: needs.changes.outputs.scope != 'docs'
         id: yarn-cache-dir
         run: echo "dir=$(yarn config get cacheFolder)" >> "$GITHUB_OUTPUT"
       - name: Restore Yarn cache
-        if: needs.changes.outputs.product == 'true'
+        if: needs.changes.outputs.scope != 'docs'
         id: yarn-cache
         uses: actions/cache/restore@v6
         with:
@@ -112,16 +112,19 @@ jobs:
           key: yarn-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('yarn.lock', '.yarnrc.yml') }}
           restore-keys: |
             yarn-${{ runner.os }}-${{ runner.arch }}-
-      - if: needs.changes.outputs.product == 'true'
+      - if: needs.changes.outputs.scope != 'docs'
         run: yarn install --immutable
+      - name: Check the ACP bridge
+        if: needs.changes.outputs.scope == 'acp'
+        run: yarn workspace @agents-anywhere/dsh-acp-bridge check
       - name: Save Yarn cache
-        if: needs.changes.outputs.product == 'true' && github.event_name != 'pull_request' && steps.yarn-cache.outputs.cache-hit != 'true'
+        if: needs.changes.outputs.scope != 'docs' && github.event_name != 'pull_request' && steps.yarn-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ${{ steps.yarn-cache-dir.outputs.dir }}
           key: ${{ steps.yarn-cache.outputs.cache-primary-key }}
       - name: Compare the Beta and Next upstream releases
-        if: needs.changes.outputs.product == 'true'
+        if: needs.changes.outputs.scope == 'full'
         id: upstream-families
         run: |
           node -e "const { beta: { runtimePackageVersion: beta }, next: { runtimePackageVersion: next } } = require('./upstream.json').channels; console.log('differ=' + String(beta !== next)); console.error('Beta follows ' + beta + ', Next ' + next)" >> "$GITHUB_OUTPUT"
@@ -132,32 +135,32 @@ jobs:
       # The login-shell specs read real zsh, bash and fish startup files with each shell the runner has;
       # the image has only bash.
       - name: Install zsh and fish for the login-shell specs
-        if: needs.changes.outputs.product == 'true'
+        if: needs.changes.outputs.scope == 'full'
         run: sudo apt-get update -qq && sudo apt-get install -y -qq --no-install-recommends zsh fish
-      - if: needs.changes.outputs.product == 'true'
+      - if: needs.changes.outputs.scope == 'full'
         run: yarn check
       - name: Resolve Playwright version
-        if: needs.changes.outputs.product == 'true'
+        if: needs.changes.outputs.scope == 'full'
         id: playwright-version
         run: echo "version=$(node -p "require('./dsh-desktop-next/package.json').devDependencies.playwright")" >> "$GITHUB_OUTPUT"
       - name: Restore Playwright browsers
-        if: needs.changes.outputs.product == 'true'
+        if: needs.changes.outputs.scope == 'full'
         id: playwright-cache
         uses: actions/cache/restore@v6
         with:
           path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright-version.outputs.version }}
       - name: Install Chromium for Next window regression
-        if: needs.changes.outputs.product == 'true' && steps.playwright-cache.outputs.cache-hit != 'true'
+        if: needs.changes.outputs.scope == 'full' && steps.playwright-cache.outputs.cache-hit != 'true'
         run: yarn workspace dsh-desktop-next exec playwright install chromium
       - name: Save Playwright browsers
-        if: needs.changes.outputs.product == 'true' && github.event_name != 'pull_request' && steps.playwright-cache.outputs.cache-hit != 'true'
+        if: needs.changes.outputs.scope == 'full' && github.event_name != 'pull_request' && steps.playwright-cache.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
           path: ~/.cache/ms-playwright
           key: ${{ steps.playwright-cache.outputs.cache-primary-key }}
       - name: Verify Next window controls, onboarding, protocol, and sidebar Browser in parallel
-        if: needs.changes.outputs.product == 'true'
+        if: needs.changes.outputs.scope == 'full'
         run: |
           node scripts/run-parallel.mjs \
             "yarn workspace dsh-desktop-next verify:window-controls" \
@@ -165,7 +168,7 @@ jobs:
             "xvfb-run --auto-servernum yarn workspace dsh-desktop-next verify:protocol --no-sandbox" \
             "xvfb-run --auto-servernum yarn workspace dsh-desktop-next verify:sidebar-browser --no-sandbox"
       - name: Verify Beta window controls, onboarding, protocol, and sidebar Browser on its own upstream release
-        if: needs.changes.outputs.product == 'true' && steps.upstream-families.outputs.differ == 'true'
+        if: needs.changes.outputs.scope == 'full' && steps.upstream-families.outputs.differ == 'true'
         run: |
           node scripts/run-parallel.mjs \
             "yarn workspace dsh-plugin-desktop-beta verify:window-controls" \
@@ -178,7 +181,7 @@ jobs:
   # The package gate runs once; both artifacts reuse its build output.
   desktop-windows:
     needs: changes
-    if: needs.changes.outputs.product == 'true' && github.event_name != 'schedule'
+    if: needs.changes.outputs.scope == 'full' && github.event_name != 'schedule'
     strategy:
       fail-fast: false
       matrix:
@@ -335,7 +338,7 @@ jobs:
   # job: the unsigned AppImage, plus the Debian package outside pull requests.
   desktop-linux:
     needs: changes
-    if: needs.changes.outputs.product == 'true' && github.event_name != 'schedule'
+    if: needs.changes.outputs.scope == 'full' && github.event_name != 'schedule'
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -417,7 +420,7 @@ jobs:
   # by manual runs that ask for it.
   desktop-macos:
     needs: changes
-    if: needs.changes.outputs.product == 'true'
+    if: needs.changes.outputs.scope == 'full'
     runs-on: macos-latest
     timeout-minutes: 60
     env:

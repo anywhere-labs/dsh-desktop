@@ -6,5 +6,8 @@
 import detail, { stylesheet as detailStyle } from 'acp-styles:@deepseek-ai/dsh-client-ui-plugin-manager/src/client/PluginManagerPage.module.css?keep=installedPanel,detailSections,detailSection,sectionHead,sectionTitle,sectionCount,versionSpacer,facts,rowState,detailActions,status,reason,subjectSpec,subjectMeta'
 import field, { stylesheet as fieldStyle } from 'acp-styles:@deepseek-ai/dsh-client-ui-primitives/src/settings-form/fields.module.css'
 
-export { detail, field }
-export const styles = `${detailStyle}\n${fieldStyle}`
+// Use the same app rows as the Computer Use permission panel from the pinned upstream checkout.
+import cua, { stylesheet as cuaStyle } from 'acp-styles:../deepseek-harness/packages/experimental/cua/src/client/PermissionPanel.module.css?keep=application,iconPlaceholder'
+
+export { detail, field, cua }
+export const styles = `${detailStyle}\n${fieldStyle}\n${cuaStyle}`

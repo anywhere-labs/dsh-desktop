@@ -46,6 +46,15 @@ test('management reads live status, persists settings, repairs the launcher, and
     assert.equal(response.status, 200, 'the panel can repair damaged settings')
     await host.unload()
     assert.equal((await request()).status, 404)
+
+    // Request diagnostics immediately after reinstall, before waiting for a launcher or endpoint.
+    const plugin = await import(new URL('../../lib/index.js', import.meta.url).href) as typeof import('../../src/index.js')
+    await host.ctx.plugin(plugin, { home: host.acpHome }).await()
+    const firstRead = await request()
+    assert.equal(firstRead.status, 200)
+    const reinstalled = await firstRead.json() as ManagementState
+    assert.equal(reinstalled.ready, true)
+    assert.equal(reinstalled.checks.find(check => check.label === 'Launcher')?.ok, true)
   } finally { await host.close() }
 })
 

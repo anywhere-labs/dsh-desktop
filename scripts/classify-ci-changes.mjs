@@ -10,11 +10,16 @@ const documentationPath = /^(?:docs\/|\.agents\/notes\/|\.github\/(?:ISSUE_TEMPL
 const nestedDocumentationPath = /\/docs\//u
 const documentationFile = /(?:\.mdx?|\.i18n\.ya?ml)$/u
 
-const productChanged = changedPaths.length === 0 || changedPaths.some((path) => {
+const productPaths = changedPaths.filter((path) => {
+  // The plugin detail page loads its localized preview from this directory.
+  if (path.startsWith('dsh-acp-bridge/docs/') && !documentationFile.test(path)) return true
   if (productCriticalDocument.test(path)) return true
   return !documentationPath.test(path)
     && !nestedDocumentationPath.test(path)
     && !documentationFile.test(path)
 })
 
-process.stdout.write(productChanged ? 'true\n' : 'false\n')
+let scope = 'full'
+if (changedPaths.length && !productPaths.length) scope = 'docs'
+else if (productPaths.length && productPaths.every(path => path.startsWith('dsh-acp-bridge/'))) scope = 'acp'
+console.log(scope)
