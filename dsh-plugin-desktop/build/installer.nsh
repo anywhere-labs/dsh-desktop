@@ -166,8 +166,68 @@ Var pid
       Var dshText
       Var dshMessage
       Var dshIntegrity
+      Var dshLabelPath
 
       !include "${DSH_INSTALLER_SCRIPTS_DIR}\installer-directories.nsh"
+
+      ; Read only LABEL_SECURITY_INFORMATION from the actual file. A directory label
+      ; may apply to directories alone, or may stop propagating before this file.
+      Function dshCheckFileIntegrity
+        Pop $dshLabelPath
+        Push $0
+        Push $1
+        Push $2
+        Push $3
+        Push $4
+        StrCpy $dshIntegrity ""
+        ; SE_FILE_OBJECT = 1. The returned security descriptor owns the SACL and its ACEs.
+        System::Call 'advapi32::GetNamedSecurityInfoW(w "$dshLabelPath", i 1, i 0x10, p 0, p 0, p 0, *p .r0, *p .r1) i .r2'
+        ${if} $2 = 0
+          ${if} $0 != 0
+            StrCpy $2 0
+            ${do}
+              System::Call 'advapi32::GetAce(p r0, i r2, *p .r3) i .r4'
+              ${if} $4 = 0
+                ${exitDo}
+              ${endIf}
+              ; ACE_HEADER starts with type and flags. Ignore inherit-only ACEs.
+              System::Call '*$3(&i2 .r4)'
+              IntOp $4 $4 & 0x08FF
+              ${if} $4 = 0x11
+                ; Check AceSize before reading the 8-byte header/mask and 12-byte
+                ; S-1-16-<level> SID. Only that authority denotes an integrity RID.
+                System::Call '*$3(&i2, &i2 .r4)'
+                ${if} $4 >= 20
+                  System::Call '*$3(i, i, i .r0, i .r2, i .r4)'
+                  ; Revision 1, one subauthority, identifier authority 16 (big endian).
+                  ${if} $0 = 0x00000101
+                  ${andIf} $2 = 0x10000000
+                    StrCpy $dshIntegrity $4
+                  ${endIf}
+                ${endIf}
+                ${exitDo}
+              ${endIf}
+              IntOp $2 $2 + 1
+            ${loop}
+          ${endIf}
+          System::Call 'kernel32::LocalFree(p r1)'
+        ${endIf}
+        Pop $4
+        Pop $3
+        Pop $2
+        Pop $1
+        Pop $0
+        ${if} $dshIntegrity != ""
+        ${andIf} $dshIntegrity U< 8192
+          !insertmacro dshLog "Setup cancelled: file integrity $dshIntegrity below Medium in $dshLabelPath for $dshFinalDirectory"
+          StrCpy $dshMessage "此位置的程序文件带有低完整性标签，可能无法启动。请重新运行安装程序，选择工作区以外的安装目录。$\r$\n$dshFinalDirectory$\r$\n$\r$\n"
+          StrCpy $dshMessage "$dshMessageProgram files at this location have a low integrity label and may fail to start. Run Setup again and choose an installation folder outside the workspace."
+          !insertmacro dshAppendInstallLog
+          MessageBox MB_OK|MB_ICONSTOP "$dshMessage" /SD IDOK
+          SetErrorLevel 2
+          !insertmacro dshQuit
+        ${endIf}
+      FunctionEnd
 
       ; Append one timestamped line to the UTF-16LE Setup log. Logging never
       ; affects the installation.
@@ -366,6 +426,16 @@ Var pid
 
 ; Upstream's command-line extraction, with the stage line it otherwise draws natively.
 !macro customInstallerExtract Archive
+  ; The stage is renamed into place on the same volume. A newly created file here
+  ; tests the actual inheritance before extracting the archive, including on /S.
+  ClearErrors
+  GetTempFileName $dshLabelPath "$dshNewDirectory"
+  ${ifNot} ${Errors}
+    Push $dshLabelPath
+    Call dshCheckFileIntegrity
+    Delete "$dshLabelPath"
+  ${endIf}
+  ClearErrors
   !insertmacro InstallerPublishStage 1
   nsExec::ExecToStack '"$PLUGINSDIR\dsh-7za.exe" x -y -bd -bb0 "-o$INSTDIR" "${Archive}"'
   Pop $R0
@@ -423,6 +493,8 @@ Var pid
   !insertmacro dshRequireStagedFile "resources\app.asar"
   !insertmacro dshRequireStagedFile "${UNINSTALL_FILENAME}"
   ${if} $dshText == ""
+    Push "$dshNewDirectory\${APP_EXECUTABLE_FILENAME}"
+    Call dshCheckFileIntegrity
     !insertmacro dshLog "Staged the new version in $dshNewDirectory for $dshFinalDirectory"
   ${else}
     !insertmacro dshLog "Staged files are missing: $dshText; the installation folder is unchanged"

@@ -15,6 +15,13 @@ LoadLanguageFile "${NSISDIR}\Contrib\Language files\English.nlf"
 !define UNINSTALL_FILENAME "Uninstall Smoke.exe"
 !macro installApplicationFiles
   !insertmacro dshExtractPayload "${PAYLOAD_FILE}"
+  !ifdef LOW_EXECUTABLE
+    ExecWait '"$SYSDIR\icacls.exe" "$INSTDIR\${APP_EXECUTABLE_FILENAME}" /setintegritylevel Low' $0
+    ${If} $0 != 0
+      SetErrorLevel 3
+      Quit
+    ${EndIf}
+  !endif
 !macroend
 !include "..\..\..\dsh-plugin-desktop\build\installer.nsh"
 !insertmacro customHeader
