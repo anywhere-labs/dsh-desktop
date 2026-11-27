@@ -15,7 +15,7 @@
     ]
   },
   "classic": {
-    "source": "The Beta and Next compositions from before the whale tail (59dce7d328^), restored unchanged: the logo layer with the system-dark fill and the badge each channel still uses.",
+    "source": "The Beta and Next compositions from before the whale tail (59dce7d328^), restored unchanged: the logo layer with the system-dark fill and the original channel badges.",
     "artwork": {
       "next": "dsh-desktop-next/build/classic/app-icon.icon",
       "beta": "dsh-plugin-desktop-beta/build/classic/app-icon.icon"
@@ -34,7 +34,7 @@
     "beta": "dsh-plugin-desktop-beta/build/app-icon.icon",
     "background": "Beta and Next: the Porcelain automatic gradient from extended sRGB 0.93, 0.95, 0.98. Stable: system-dark.",
     "whale": "Beta and Next keep the Porcelain group effects: a neutral shadow at 0.18 opacity and translucency 0.12.",
-    "badge": "Same capsule, placement and effects for Next and Beta; system heavy text with identical size and tracking, converted to SVG outlines. The Stable composition preserves the badge group with hidden set to true."
+    "badge": "The default Next icon has no badge. Beta keeps its BETA capsule with system heavy text converted to SVG outlines. The Stable composition preserves the badge group with hidden set to true."
   },
   "tray": "Beta and Next cut assets/tray-*.png from the whale-tail layer during icons:export: black macOS template images and #3563BF Windows and Linux images, recorded in each app-icon.resources.json. Stable keeps the images derived from dsh-plugin-desktop/build/tray-icon.svg.",
   "previews": {
