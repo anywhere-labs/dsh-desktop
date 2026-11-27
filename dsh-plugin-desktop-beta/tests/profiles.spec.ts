@@ -358,8 +358,8 @@ it('composes optional AA and Market while retaining the official Web layout', ()
   expect(rows.some(row => row.name === '@deepseek-ai/dsh-experimental-computer-use-cua-driver-native' && row.disabled)).toBe(true)
   // Client module discovery requires a package root, not the previous /extensions subpath.
   expect(rows.find(row => row.id === 'desktop-next-capabilities')?.name).toBe('dsh-plugin-desktop-beta')
-  const overlays = [fileURLToPath(new URL('../host.cordis.patch.yml', import.meta.url)),
-    join(dir, 'desktop-next.cordis.patch.json')]
+  const overlayPath = join(dir, 'desktop-next.cordis.patch.json')
+  const overlays = [fileURLToPath(new URL('../host.cordis.patch.yml', import.meta.url)), overlayPath]
   const reread = readNextProfilePatches(dir, manager.home, overlays)
   const reconciled = composeEntries([reread])
   expect(reconciled.some(row => row.name === 'dsh-community-market' && !row.disabled)).toBe(true)
@@ -373,8 +373,12 @@ it('composes optional AA and Market while retaining the official Web layout', ()
     [{ id: 'ui-sidebar-browser', disabled: false }])])
   expect(pending.find(row => row.id === 'ui-sidebar-browser')?.disabled).toBe(false)
   manager.setFeatures('desktop', { remoteControl: false, market: false })
-  const disabled = composeEntries([...loadNextProfile(dir, manager.home).layers.map(layer => layer.patches), loadOverlayPatches('next', join(dir, 'desktop-next.cordis.patch.json'))])
+  const disabled = composeEntries([readNextProfilePatches(dir, manager.home, overlays)])
   expect(disabled.some(row => !row.disabled && (row.name === AA_PACKAGE || row.name === 'dsh-community-market'))).toBe(false)
+  expect(loadOverlayPatches('next', overlayPath)).toEqual([])
+  manager.setFeatures('desktop', { remoteControl: true, market: false })
+  const reenabled = composeEntries([readNextProfilePatches(dir, manager.home, overlays)])
+  expect(reenabled.find(row => row.name === AA_PACKAGE)?.config).toEqual({ dshHome: manager.home })
 })
 
 it('shares AA defaults across Profiles and replaces legacy generated state overrides', () => {
@@ -444,13 +448,14 @@ it('migrates legacy switches once and preserves later official plugin selections
     .not.toContain('dsh-plugin-desktop-beta')
   expect(readdirSync(join(manager.home, 'recovery'))).toHaveLength(1)
   // The official manager writes the bundle list, with no shell feature flag write.
+  loadNextProfile(dir, manager.home)
   migrated.dsh.profile.bundles = [...WEB_BUNDLES, COMMUNITY_MARKET_PACKAGE, DSH_MARKET_PACKAGE]
   writeFileSync(file, JSON.stringify(migrated))
   manager.ensure('desktop')
   loadNextProfile(dir, manager.home)
   expect(manager.features('desktop')).toEqual({ market: true, remoteControl: false, dshMarket: true })
   const overlay = JSON.parse(readFileSync(join(dir, 'desktop-next.cordis.patch.json'), 'utf8'))
-  expect(overlay.every((row: object) => !Object.hasOwn(row, 'disabled'))).toBe(true)
+  expect(overlay).toEqual([])
   manager.create('work')
   expect(manager.features('work')).toEqual({ market: false, remoteControl: false })
 })
@@ -709,6 +714,7 @@ it('still loads the Profile when pnpm cannot remove on-demand bundles of another
 it('leaves no Profile link into an archived installation and points the AA bridge at its unpacked files', () => {
   const manager = profiles()
   const dir = manager.ensure('desktop')
+  manager.setFeatures('desktop', { remoteControl: true, market: false })
   const resources = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-next-resources-')))
   roots.push(resources)
   const archive = join(resources, 'app.asar')
@@ -716,7 +722,11 @@ it('leaves no Profile link into an archived installation and points the AA bridg
   const uv = join(archive, 'node_modules', '@dataiku', `uv-${process.platform}-${process.arch}`)
   for (const path of [bridge, uv]) mkdirSync(path, { recursive: true })
   writeFileSync(join(archive, 'package.json'), readFileSync(NEXT_PACKAGE))
-  writeFileSync(join(bridge, 'package.json'), JSON.stringify({ name: AA_PACKAGE, version: '0.0.0', exports: { '.': './index.js', './package.json': './package.json' } }))
+  writeFileSync(join(bridge, 'package.json'), JSON.stringify({
+    name: AA_PACKAGE, version: '0.0.0', exports: { '.': './index.js', './package.json': './package.json' },
+    dsh: { bundle: { patch: './cordis.patch.yml' } },
+  }))
+  writeFileSync(join(bridge, 'cordis.patch.yml'), `- insert:\n    - id: agents-anywhere-bridge-next\n      name: "${AA_PACKAGE}"\n`)
   writeFileSync(join(bridge, 'index.js'), 'export {}\n')
   writeFileSync(join(uv, 'package.json'), JSON.stringify({ name: `@dataiku/uv-${process.platform}-${process.arch}`, version: '0.0.0' }))
   // A development launch left its link behind; the archived application removes it.
@@ -725,6 +735,7 @@ it('leaves no Profile link into an archived installation and points the AA bridg
   const link = join(modules, 'dsh-plugin-desktop-beta')
   symlinkSync(dirname(NEXT_PACKAGE), link, 'junction')
   const profile = loadNextProfile(dir, manager.home, join(archive, 'package.json'))
+  expect(profile.layers.map(layer => layer.packageName), JSON.stringify(profile.skippedBundles)).toContain(AA_PACKAGE)
   expect(lstatSync(link, { throwIfNoEntry: false })).toBeUndefined()
   expect(profile.layers.map(layer => layer.packageName)).toContain('dsh-plugin-desktop-beta')
   const overlay = JSON.parse(readFileSync(join(dir, 'desktop-next.cordis.patch.json'), 'utf8')) as { id: string; config: Record<string, string> }[]
