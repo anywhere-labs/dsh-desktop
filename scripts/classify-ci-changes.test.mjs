@@ -17,12 +17,18 @@ test('skips the product gate only for documentation-only changes', () => {
     '.agents/notes/implemented/architecture/decision.i18n.yaml',
     'dsh-community-market/docs/schema.json',
     '.github/ISSUE_TEMPLATE/feature_request.yml',
-  ]), 'false')
+  ]), 'docs')
 })
 
 test('runs the product gate for source, workflow, license and empty changes', () => {
-  assert.equal(classify(['README.md', 'dsh-desktop-next/src/main.ts']), 'true')
-  assert.equal(classify(['.github/workflows/ci.yml']), 'true')
-  assert.equal(classify(['THIRD_PARTY_NOTICES.md']), 'true')
-  assert.equal(classify([]), 'true')
+  assert.equal(classify(['README.md', 'dsh-desktop-next/src/main.ts']), 'full')
+  assert.equal(classify(['.github/workflows/ci.yml']), 'full')
+  assert.equal(classify(['THIRD_PARTY_NOTICES.md']), 'full')
+  assert.equal(classify([]), 'full')
+})
+
+test('checks the standalone ACP workspace for plugin code and packaged previews', () => {
+  assert.equal(classify(['README.md', 'dsh-acp-bridge/src/panel/panel.tsx']), 'acp')
+  assert.equal(classify(['dsh-acp-bridge/docs/preview.zh.svg']), 'acp')
+  assert.equal(classify(['dsh-acp-bridge/src/index.ts', 'yarn.lock']), 'full')
 })
