@@ -197,6 +197,8 @@ beforeEach(async () => {
   fixture.inspectQuit.mockReset().mockReturnValue(undefined)
   fixture.locationRoot = mkdtempSync(join(tmpdir(), 'next-location-root-'))
   fixture.browserLinks = { localUrl: null, lanUrls: [] }; fixture.storedPreferences = {}
+  // These mocks model a graphical session; launchWithoutDisplay clears both display variables.
+  vi.stubEnv('DISPLAY', ':0')
   // A Linux launch without a display restarts itself; a test that reaches it must never replace the test worker.
   process.execve = vi.fn((): never => { throw new Error('process.execve was not expected') })
   fixture.phase = 'ready'
@@ -223,6 +225,7 @@ beforeEach(async () => {
 })
 
 afterEach(() => {
+  vi.unstubAllEnvs()
   process.execve = realExecve
   for (const window of fixture.windows) if (!window.destroyed) window.destroy()
   rmSync(fixture.locationRoot, { recursive: true, force: true })
@@ -1142,8 +1145,6 @@ it.each(['timeout', 'failure'] as const)('still launches a staged update before 
 it('sends an available Linux update to its release page from the tray and Settings instead of downloading it', async () => {
   const home = mkdtempSync(join(tmpdir(), 'next-linux-update-'))
   vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
-  // A Linux desktop session: without a display the launch would restart on the headless platform.
-  vi.stubEnv('DISPLAY', ':0')
   const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
   Object.defineProperty(process, 'platform', { ...platform, value: 'linux' })
   let snapshot = { phase: 'current', version: '2.0.21-beta.1', installable: false }
