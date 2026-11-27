@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "jsx": "react-jsx",
+    "lib": [
+      "ES2023",
+      "DOM"
+    ],
+    "skipLibCheck": true
+  },
+  "include": [
+    "src/panel/**/*.ts",
+    "src/panel/**/*.tsx"
+  ]
+}

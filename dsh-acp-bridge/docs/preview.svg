@@ -1,0 +1,43 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="300" viewBox="0 0 960 450" role="img" aria-labelledby="title description">
+  <title id="title">Connect your apps to DSH</title>
+  <desc id="description">External apps connect to DSH through ACP to share sessions, models and tools, with automatic startup.</desc>
+  <rect width="960" height="450" rx="15" fill="#F5F6FC"/>
+  <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
+    <text x="48" y="65" font-size="32" font-weight="600" fill="#202B49">Connect your apps to DSH</text>
+    <text x="48" y="99" font-size="17" fill="#7A859E">Share existing sessions, models and tools through ACP</text>
+    <rect x="48" y="144" width="240" height="216" rx="18" fill="#E9ECF5"/>
+    <rect x="48" y="138" width="240" height="216" rx="18" fill="#FFFFFF" stroke="#DFE4EF" stroke-width="1.5"/>
+    <text x="72" y="172" font-size="15" font-weight="600" fill="#7A859E">Your apps</text>
+    <g fill="#38425A" font-size="18">
+      <text x="112" y="218">Editors</text>
+      <text x="112" y="270">Scripts</text>
+      <text x="112" y="322">Automation</text>
+    </g>
+    <g fill="none" stroke="#6374AF" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="74" y="201" width="22" height="16" rx="3"/><path d="M85 217v5m-7 0h14"/>
+      <path d="m76 253 6 6-6 6m10 0h8"/>
+      <path d="m86 303-10 12h9l-2 11 11-14h-9z"/>
+    </g>
+    <g fill="none" stroke="#AAB5D1" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M306 247h184m-177-6-7 6 7 6m170-12 7 6-7 6"/>
+    </g>
+    <rect x="350" y="224" width="96" height="46" rx="23" fill="#4D6BFE"/>
+    <text x="398" y="253" text-anchor="middle" font-size="19" font-weight="600" fill="#FFFFFF">ACP</text>
+    <rect x="508" y="144" width="404" height="216" rx="18" fill="#E9ECF5"/>
+    <rect x="508" y="138" width="404" height="216" rx="18" fill="#FFFFFF" stroke="#DFE4EF" stroke-width="1.5"/>
+    <text x="532" y="174" font-size="20" font-weight="600" fill="#202B49">DSH</text>
+    <rect x="532" y="194" width="356" height="88" rx="12" fill="#EEF1FF"/>
+    <g fill="none" stroke="#4D6BFE" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M553 210h20a4 4 0 0 1 4 4v12a4 4 0 0 1-4 4h-13l-7 5v-5a4 4 0 0 1-4-4v-12a4 4 0 0 1 4-4z"/>
+      <path d="M556 218h14m-14 6h9"/>
+    </g>
+    <text x="590" y="228" font-size="19" font-weight="600" fill="#38425A">Shared sessions</text>
+    <text x="550" y="260" font-size="16" fill="#7A859E">Start a chat or continue an existing one</text>
+    <rect x="532" y="296" width="168" height="36" rx="10" fill="#F5F6FC"/>
+    <rect x="712" y="296" width="176" height="36" rx="10" fill="#F5F6FC"/>
+    <text x="616" y="320" text-anchor="middle" font-size="16" fill="#38425A">Models</text>
+    <text x="800" y="320" text-anchor="middle" font-size="16" fill="#38425A">Tools &amp; MCP</text>
+    <circle cx="55" cy="398" r="4" fill="#4D6BFE"/>
+    <text x="70" y="404" font-size="16" fill="#7A859E">Automatically start DSH when needed</text>
+  </g>
+</svg>

@@ -35,10 +35,11 @@ test('the launch description follows the launcher', { timeout: 60_000 }, async (
   try {
     const [stored] = await readRecords(host.acpHome)
     assert.ok(stored?.record.launcher)
-    assert.deepEqual(await launchInfo(host.acpHome), { version: 1, command: stored.record.launcher.runtime,
-      args: [stored.record.launcher.script], env: stored.record.launcher.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {} })
+    const { launcher } = stored.record
+    assert.deepEqual(await launchInfo(host.acpHome), { version: 1, command: launcher.runtime, args: [launcher.script, '--home', host.acpHome],
+      env: { DSH_HOME: launcher.dshHome, ...(launcher.electron ? { ELECTRON_RUN_AS_NODE: '1' } : {}) } })
     const described = await launchInfo(host.acpHome)
-    const checked = await execFile(described.command, [...described.args, '--check', '--home', host.acpHome],
+    const checked = await execFile(described.command, [...described.args, '--check'],
       { env: { ...process.env, ...described.env } })
     assert.equal(JSON.parse(checked.stdout).instanceId, stored.record.instanceId, 'starting what it describes reaches this DSH')
     await host.dispose()
@@ -82,7 +83,7 @@ test('another running DSH that serves the plugin takes the launcher over', { tim
     assert.ok(remaining?.record.launcher, 'records carry what their launcher runs')
     assert.ok((await readFile(launcherPath(acpHome), 'utf8')).includes(remaining.record.launcher.script),
       'the launcher now belongs to the DSH that still serves the plugin')
-    assert.deepEqual((await launchInfo(acpHome)).args, [remaining.record.launcher.script], 'and so does its launch description')
+    assert.deepEqual((await launchInfo(acpHome)).args, [remaining.record.launcher.script, '--home', acpHome], 'and so does its launch description')
     await second.unload()
     assert.equal(existsSync(launcherPath(acpHome)), false)
     assert.equal(existsSync(launchInfoPath(acpHome)), false)

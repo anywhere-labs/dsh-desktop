@@ -11,6 +11,7 @@ import { installDesktopFileDrag, installFileActions } from '../src/upstream-fami
 
 const originalMonitors = new Set(process.listeners('uncaughtExceptionMonitor'))
 afterEach(() => { for (const listener of process.listeners('uncaughtExceptionMonitor')) if (!originalMonitors.has(listener)) process.off('uncaughtExceptionMonitor', listener) })
+const realExecve = process.execve
 
 const fixture = vi.hoisted(() => ({
   windows: [] as any[], trays: [] as any[], handlers: new Map<string, (...args: any[]) => any>(),
@@ -23,6 +24,8 @@ const fixture = vi.hoisted(() => ({
   needsOnboarding: false, corruptProfile: false, restart: vi.fn(), hostReady: false,
   appPaths: new Map<string, string>(), lockPaths: [] as string[], ownsInstance: true,
   locationRoot: '',
+  browserLinks: { localUrl: null, lanUrls: [] } as { localUrl: string | null, lanUrls: string[] },
+  storedPreferences: {} as Partial<typeof DEFAULT_PREFERENCES>,
   runtimeOptions: undefined as ConstructorParameters<typeof NextDesktopRuntime>[0] | undefined,
   runtime: undefined as { actionFailure: string } | undefined,
   failureReportFile: vi.fn(async (): Promise<string | undefined> => undefined),
@@ -60,7 +63,7 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
   async injections() { return [] }
   profiles: NextProfiles
   recovery: import('../src/recovery.ts').NextRecovery
-  diagnostics = { append: fixture.diagnosticAppend, flush: vi.fn(), hostChunk: vi.fn(), record: fixture.diagnosticAppend, operation: vi.fn(() => vi.fn()), begin: vi.fn(), end: vi.fn(), pendingOperations: vi.fn(() => []), snapshot: fixture.diagnosticSnapshot }
+  diagnostics = { file: '/fixture/logs/desktop-next.log', append: fixture.diagnosticAppend, flush: vi.fn(), hostChunk: vi.fn(), record: fixture.diagnosticAppend, operation: vi.fn(() => vi.fn()), begin: vi.fn(), end: vi.fn(), pendingOperations: vi.fn(() => []), snapshot: fixture.diagnosticSnapshot }
   memory = fixture.memory
   actionFailure = ''
   failureReportFile = fixture.failureReportFile
@@ -78,13 +81,13 @@ vi.mock('../src/desktop-runtime.ts', async () => { const { NextProfiles } = awai
     if (!fixture.needsOnboarding) this.profiles.finishOnboarding('desktop')
     if (fixture.corruptProfile) writeFileSync(join(this.profiles.directory('desktop'), 'package.json'), '{broken')
   }
-  initialize() { if (this.safeMode) Object.assign(this.preferences, SAFE_MODE_PREFERENCES) }
+  initialize() { Object.assign(this.preferences, this.safeMode ? SAFE_MODE_PREFERENCES : fixture.storedPreferences) }
   writePreferences(next: typeof DEFAULT_PREFERENCES) { Object.assign(this.preferences, next) }
   start = fixture.start
   close = fixture.close
   async restart(change: () => Promise<void>) { await fixture.stop(); await change(); this.recoveryMode = false; await fixture.restart() }
   terminalTarget = fixture.terminalTarget
-  browserLinks() { return { localUrl: null, lanUrls: [] } }
+  browserLinks() { return fixture.browserLinks }
   state() { return { selected: 'desktop', profiles: ['desktop'], unavailableProfiles: [], features: fixture.corruptProfile ? { remoteControl: false, market: true } : this.profiles.features(this.selected),
     preferences: this.preferences, phase: this.recoveryMode ? 'recovery' : fixture.phase, busy: this.busy, failure: 'Fixture Host failure', safeMode: this.safeMode,
     home: 'temporary', browserUrl: null, lan: null, checkpoint: null } }
@@ -103,6 +106,7 @@ vi.mock('electron', async () => {
   const app = Object.assign(new EventEmitter(), {
     setName() {}, setPath: (name: string, path: string) => fixture.appPaths.set(name, path), getPath: (name: string) => fixture.appPaths.get(name) ?? process.env.DSH_DESKTOP_NEXT_HOME, getLocale: () => 'en-US', getPreferredSystemLanguages: () => ['zh-Hans-CN', 'en-US'], isReady: () => true, whenReady: async () => {},
     requestSingleInstanceLock: () => { fixture.lockPaths.push(fixture.appPaths.get('userData')!); return fixture.ownsInstance }, exit: vi.fn(), relaunch: vi.fn(), focus: vi.fn(), quit: vi.fn(() => app.emit('before-quit', { preventDefault() {} })),
+    disableHardwareAcceleration: vi.fn(),
     getAppMetrics: () => [],
     dock: { setIcon: fixture.dockIcon },
   })
@@ -192,6 +196,9 @@ beforeEach(async () => {
   fixture.dragResource.mockReset().mockResolvedValue(null)
   fixture.inspectQuit.mockReset().mockReturnValue(undefined)
   fixture.locationRoot = mkdtempSync(join(tmpdir(), 'next-location-root-'))
+  fixture.browserLinks = { localUrl: null, lanUrls: [] }; fixture.storedPreferences = {}
+  // A Linux launch without a display restarts itself; a test that reaches it must never replace the test worker.
+  process.execve = vi.fn((): never => { throw new Error('process.execve was not expected') })
   fixture.phase = 'ready'
   fixture.needsOnboarding = false; fixture.corruptProfile = false; fixture.restart.mockReset(); fixture.hostReady = false
   fixture.plugin.mockReset(); fixture.pluginDone.mockReset().mockResolvedValue({ exitCode: 0 });
@@ -210,11 +217,13 @@ beforeEach(async () => {
   vi.mocked(app.relaunch).mockClear()
   vi.mocked(app.quit).mockClear()
   vi.mocked(app.exit).mockClear()
+  vi.mocked(app.disableHardwareAcceleration).mockClear()
   vi.mocked(dialog.showMessageBoxSync).mockClear()
   vi.mocked(shell.showItemInFolder).mockClear()
 })
 
 afterEach(() => {
+  process.execve = realExecve
   for (const window of fixture.windows) if (!window.destroyed) window.destroy()
   rmSync(fixture.locationRoot, { recursive: true, force: true })
 })
@@ -745,6 +754,196 @@ it('runs no `dsh` command on the fallback directory when the data directory choi
   } finally { exit.mockRestore(); error.mockRestore() }
 })
 
+/** Start the main process as Linux starts it without a display server: by default the launch already restarted on the headless platform. */
+async function launchWithoutDisplay(home: string, check: () => Promise<void>, args = ['--ozone-platform=headless']): Promise<void> {
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  vi.stubEnv('DISPLAY', '')
+  vi.stubEnv('WAYLAND_DISPLAY', '')
+  const argv = [...process.argv]
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  process.argv.splice(0, process.argv.length, '/opt/app/desktop', ...args)
+  Object.defineProperty(process, 'platform', { ...platform, value: 'linux' })
+  try {
+    await check()
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+    process.argv.splice(0, process.argv.length, ...argv)
+    vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true })
+  }
+}
+const written = (write: { mock: { calls: unknown[][] } }): string => write.mock.calls.map(call => String(call[0])).join('')
+
+it('restarts a Linux launch without a display on the headless platform before it claims the instance', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-displayless-restart-'))
+  const execve = vi.fn((): never => { throw new Error('restarted') })
+  process.execve = execve
+  await launchWithoutDisplay(home, async () => {
+    await expect(import('../src/main.ts')).rejects.toThrow('restarted')
+    expect(execve).toHaveBeenCalledWith(process.execPath, [process.execPath, '--no-sandbox', '--ozone-platform=headless'], process.env)
+    expect(fixture.lockPaths).toEqual([])
+    expect(existsSync(join(home, 'electron-user-data'))).toBe(false)
+  }, ['--no-sandbox'])
+})
+
+it('starts the selected Profile without setup, tray or window on the headless platform and prints its browser link', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-displayless-start-'))
+  fixture.needsOnboarding = true
+  const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+  try {
+    await launchWithoutDisplay(home, async () => {
+      await import('../src/main.ts')
+      await vi.waitFor(() => expect(fixture.start).toHaveBeenCalledOnce())
+      const { app } = await import('electron')
+      expect(app.disableHardwareAcceleration).toHaveBeenCalledOnce()
+      expect(fixture.trays).toHaveLength(0)
+      expect(fixture.windows).toHaveLength(0)
+      // Setup is skipped as its Skip button does: the optional plugins and Computer Use stay off.
+      const profiles = new NextProfiles(home)
+      expect(profiles.onboardingRequired('desktop')).toBe(false)
+      expect(profiles.features('desktop')).toEqual({ remoteControl: false, market: false })
+      expect(profiles.computerUseEnabled('desktop')).toBe(false)
+      expect(fixture.preferences).toMatchObject({ browserAccess: true, networkExposure: 'loopback' })
+      // The link appears once its Host is ready, once per Host start, and again when another launch asks.
+      fixture.runtimeOptions!.onChange()
+      expect(written(write)).not.toContain('token=')
+      fixture.browserLinks = { localUrl: 'http://127.0.0.1:41234/?token=secret', lanUrls: [] }
+      fixture.runtimeOptions!.onChange()
+      fixture.runtimeOptions!.onChange()
+      expect(written(write)).toContain('http://127.0.0.1:41234/?token=secret')
+      expect(written(write)).toContain('ssh -L 41234:127.0.0.1:41234')
+      expect(written(write).match(/token=secret/gu)).toHaveLength(1)
+      app.emit('second-instance', {}, ['/opt/app/desktop'])
+      expect(written(write).match(/token=secret/gu)).toHaveLength(2)
+      expect(fixture.windows).toHaveLength(0)
+    })
+  } finally { write.mockRestore() }
+})
+
+it('keeps browser access a user widened to the local network when it starts without a display', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-displayless-lan-'))
+  fixture.storedPreferences = { browserAccess: true, networkExposure: 'lan' }
+  await launchWithoutDisplay(home, async () => {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.start).toHaveBeenCalledOnce())
+    expect(fixture.preferences).toMatchObject({ browserAccess: true, networkExposure: 'lan' })
+  })
+})
+
+it('ends a launch without a display with its failure, log and report and a nonzero status instead of opening recovery', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-displayless-failure-'))
+  fixture.failureReportFile.mockResolvedValue('/fixture/reports/failure.json')
+  const error = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+  try {
+    await launchWithoutDisplay(home, async () => {
+      const { app, dialog } = await import('electron')
+      vi.mocked(dialog.showMessageBox).mockClear()
+      await import('../src/main.ts')
+      await vi.waitFor(() => expect(fixture.start).toHaveBeenCalledOnce())
+      fixture.runtimeOptions!.onFailure()
+      await vi.waitFor(() => expect(app.exit).toHaveBeenCalledWith(1))
+      expect(written(error)).toContain('Fixture Host failure')
+      expect(written(error)).toContain('/fixture/logs/desktop-next.log')
+      expect(written(error)).toContain('/fixture/reports/failure.json')
+      expect(fixture.windows).toHaveLength(0)
+      expect(dialog.showMessageBox).not.toHaveBeenCalled()
+    })
+  } finally { error.mockRestore() }
+})
+
+it('quits a launch without a display at once, since nobody could answer the task confirmation', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-displayless-quit-'))
+  fixture.hostReady = true
+  fixture.inspectQuit.mockReturnValue(Promise.resolve({ activeTasks: true, scheduledTasks: false }))
+  await launchWithoutDisplay(home, async () => {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.start).toHaveBeenCalledOnce())
+    const { app, dialog } = await import('electron')
+    vi.mocked(dialog.showMessageBox).mockClear()
+    app.quit()
+    await vi.waitFor(() => expect(app.quit).toHaveBeenCalledTimes(2))
+    expect(fixture.inspectQuit).not.toHaveBeenCalled()
+    expect(dialog.showMessageBox).not.toHaveBeenCalled()
+    expect(app.exit).not.toHaveBeenCalled()
+  })
+})
+
+it('restarts the Host a plugin asks for without a display, with no dialog, and prints the new browser link', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-displayless-restart-request-'))
+  const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
+  try {
+    await launchWithoutDisplay(home, async () => {
+      const { dialog } = await import('electron')
+      vi.mocked(dialog.showMessageBox).mockClear()
+      await import('../src/main.ts')
+      await vi.waitFor(() => expect(fixture.start).toHaveBeenCalledOnce())
+      fixture.browserLinks = { localUrl: 'http://127.0.0.1:41234/?token=first', lanUrls: [] }
+      fixture.runtimeOptions!.onChange()
+      // `desktopActions.requestRestart` from a Host plugin.
+      fixture.runtimeOptions!.onRestart()
+      await vi.waitFor(() => expect(fixture.restart).toHaveBeenCalledOnce())
+      expect(fixture.stop).toHaveBeenCalledOnce()
+      expect(dialog.showMessageBox).not.toHaveBeenCalled()
+      expect(fixture.windows).toHaveLength(0)
+      // The restarted Host signs browsers in with a new token.
+      fixture.browserLinks = { localUrl: 'http://127.0.0.1:41234/?token=second', lanUrls: [] }
+      fixture.runtimeOptions!.onChange()
+      expect(written(write)).toContain('token=second')
+    })
+  } finally { write.mockRestore() }
+})
+
+it('still asks on a desktop before restarting the Host a plugin asks for', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-restart-request-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const { dialog } = await import('electron')
+  vi.mocked(dialog.showMessageBox).mockClear().mockResolvedValueOnce({ response: 1, checkboxChecked: false })
+  try {
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    fixture.runtimeOptions!.onRestart()
+    await vi.waitFor(() => expect(dialog.showMessageBox).toHaveBeenCalledOnce())
+    expect(vi.mocked(dialog.showMessageBox).mock.calls[0]!.at(-1)).toMatchObject({ message: '重启工作环境以应用更改？' })
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(fixture.stop).not.toHaveBeenCalled()
+    expect(fixture.restart).not.toHaveBeenCalled()
+  } finally { vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it('tells a second launch without a display where the running instance shows its browser link', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-displayless-second-'))
+  fixture.ownsInstance = false
+  const error = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+  try {
+    await launchWithoutDisplay(home, async () => {
+      await import('../src/main.ts')
+      // Started without a desktop, the running instance prints the link in its own output; on a desktop, its settings show it.
+      expect(written(error)).toContain('终端或服务日志')
+      expect(written(error)).toContain('设置里查看')
+      expect(fixture.start).not.toHaveBeenCalled()
+      expect(fixture.windows).toHaveLength(0)
+    })
+  } finally { error.mockRestore() }
+})
+
+it('keeps this data directory without a dialog when a launch without a display finds another one recorded', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-displayless-home-')), previous = mkdtempSync(join(tmpdir(), 'next-displayless-last-home-'))
+  new NextProfiles(previous).ensure('desktop')
+  writeFileSync(join(fixture.locationRoot, 'desktop-next-last-home.json'), JSON.stringify({ home: previous }))
+  const error = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
+  try {
+    await launchWithoutDisplay(home, async () => {
+      const { dialog } = await import('electron')
+      vi.mocked(dialog.showMessageBox).mockClear()
+      await import('../src/main.ts')
+      await vi.waitFor(() => expect(fixture.start).toHaveBeenCalledOnce())
+      expect(dialog.showMessageBox).not.toHaveBeenCalled()
+      expect(fixture.runtimeOptions?.home).toBe(home)
+      expect(written(error)).toContain(previous)
+      expect((JSON.parse(readFileSync(join(fixture.locationRoot, 'desktop-next-last-home.json'), 'utf8')) as { home: string }).home).toBe(home)
+    })
+  } finally { error.mockRestore(); rmSync(previous, { recursive: true, force: true }) }
+})
+
 it('explains the first Windows GPU launch failure in a native dialog, records it and quits', async () => {
   const home = mkdtempSync(join(tmpdir(), 'next-sandbox-gpu-'))
   vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
@@ -943,6 +1142,8 @@ it.each(['timeout', 'failure'] as const)('still launches a staged update before 
 it('sends an available Linux update to its release page from the tray and Settings instead of downloading it', async () => {
   const home = mkdtempSync(join(tmpdir(), 'next-linux-update-'))
   vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  // A Linux desktop session: without a display the launch would restart on the headless platform.
+  vi.stubEnv('DISPLAY', ':0')
   const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
   Object.defineProperty(process, 'platform', { ...platform, value: 'linux' })
   let snapshot = { phase: 'current', version: '2.0.21-beta.1', installable: false }

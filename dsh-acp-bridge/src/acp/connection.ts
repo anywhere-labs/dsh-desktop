@@ -5,8 +5,9 @@
  */
 
 import { agent as acpAgent, methods, PROTOCOL_VERSION, RequestError, type AgentConnection, type ClientCapabilities, type ContentBlock as AcpContent,
-  type InitializeResponse,
-  type ListSessionsResponse, type SessionInfo, type SessionUpdate, type Stream } from '@agentclientprotocol/sdk'
+  type InitializeRequest, type InitializeResponse, type ListSessionsResponse, type SessionInfo, type SessionUpdate, type Stream } from '@agentclientprotocol/sdk'
+import { randomUUID } from 'node:crypto'
+import type { ConnectionDetails } from '../management-contract.js'
 import type { SessionSummary } from '@deepseek-ai/dsh-api-session-controller'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { realpath, stat } from 'node:fs/promises'
@@ -17,6 +18,7 @@ import type { InteractionHub } from './interactions.js'
 import type { Log } from './log.js'
 import { McpConfigError, mcpModules, McpStartError, resolveDeclarations, type McpDeclaration } from './mcp.js'
 import { AcpSession, type AcpClient } from './session.js'
+import { parseSessionTitle, SET_SESSION_TITLE } from './title.js'
 
 const LIST_PAGE = 100
 
@@ -69,6 +71,11 @@ function decodeCursor(cursor: unknown): number {
 }
 
 export class AcpConnection implements AcpClient {
+  private readonly id = randomUUID()
+  private readonly connectedAt = new Date().toISOString()
+  private clientInfo: ConnectionDetails['client']
+  private initialized = false
+  private readonly titles = new Map<string, string>()
   private readonly sessions = new Map<string, AcpSession>()
   private capabilities: ClientCapabilities = {}
   private connection: AgentConnection | undefined
@@ -76,21 +83,32 @@ export class AcpConnection implements AcpClient {
   private mcpWarned = false
 
   constructor(private readonly host: DshHost, private readonly hub: InteractionHub, private readonly log: Log,
-    private readonly identity: BridgeIdentity) {}
+    private readonly identity: BridgeIdentity, private readonly changed: () => void = () => {}) {}
+
+  details(): ConnectionDetails {
+    return { id: this.id, connectedAt: this.connectedAt, initialized: this.initialized,
+      ...(this.clientInfo ? { client: this.clientInfo } : {}),
+      sessions: [...this.sessions.values()].filter(session => !session.closed).map(session => ({
+        id: session.id, cwd: session.workingDirectory,
+        ...(this.titles.has(session.id) ? { title: this.titles.get(session.id)! } : {}),
+      })) }
+  }
 
   get elicitation(): boolean { return Boolean(this.capabilities.elicitation?.form) }
+  sessionsChanged(): void { this.changed() }
   get booleanOptions(): boolean { return Boolean(record(record(record(this.capabilities).session).configOptions).boolean) }
 
   /** Serve until the stream ends; every session this connection followed is released afterwards. */
   async serve(stream: Stream): Promise<void> {
     const guard = <T>(operation: () => Promise<T>) => operation().catch((error: unknown) => { throw toRequestError(error) })
     const app = acpAgent({ name: 'agents-anywhere-dsh-acp' })
-      .onRequest(methods.agent.initialize, ({ params }) => guard(async () => this.initialize(params.clientCapabilities)))
+      .onRequest(methods.agent.initialize, ({ params }) => guard(async () => this.initialize(params.clientCapabilities, params.clientInfo)))
       .onRequest(methods.agent.authenticate, async () => ({}))
       .onRequest(methods.agent.session.new, ({ params }) => guard(() => this.newSession(params.cwd, params.mcpServers)))
       .onRequest(methods.agent.session.load, ({ params }) => guard(async () => ({ configOptions: await this.open(params.sessionId, params.cwd, params.mcpServers, true) })))
       .onRequest(methods.agent.session.resume, ({ params }) => guard(async () => ({ configOptions: await this.open(params.sessionId, params.cwd, params.mcpServers, false) })))
       .onRequest(methods.agent.session.list, ({ params, signal }) => guard(() => this.list(params.cwd, params.cursor, signal)))
+      .onRequest(SET_SESSION_TITLE, parseSessionTitle, ({ params, signal }) => guard(() => this.setTitle(params.sessionId, params.title, signal)))
       .onRequest(methods.agent.session.close, ({ params }) => guard(async () => { await this.closeSession(params.sessionId); return {} }))
       .onRequest(methods.agent.session.delete, ({ params }) => guard(async () => { await this.deleteSession(params.sessionId); return {} }))
       .onRequest(methods.agent.session.fork, ({ params }) => guard(() => this.fork(params.sessionId, params.cwd, params.mcpServers)))
@@ -107,10 +125,14 @@ export class AcpConnection implements AcpClient {
     await this.close()
   }
 
-  private async initialize(capabilities: ClientCapabilities | undefined): Promise<InitializeResponse> {
+  private async initialize(capabilities: ClientCapabilities | undefined, clientInfo: InitializeRequest['clientInfo']): Promise<InitializeResponse> {
     this.capabilities = capabilities ?? {}
     // Stdio servers are always accepted where DSH's MCP client is installed; SSE is deprecated, as in the official dsh-acp.
     const [mcp, image] = await Promise.all([mcpModules(), this.host.imagesAdvertised()])
+    this.clientInfo = clientInfo ? { name: clientInfo.name, version: clientInfo.version,
+      ...(clientInfo.title ? { title: clientInfo.title } : {}) } : undefined
+    this.initialized = true
+    this.changed()
     return {
       protocolVersion: PROTOCOL_VERSION,
       agentInfo: { name: 'agents-anywhere-dsh', title: 'DeepSeek Harness', version: this.identity.version },
@@ -118,7 +140,7 @@ export class AcpConnection implements AcpClient {
         loadSession: true,
         promptCapabilities: { image, audio: false, embeddedContext: true },
         mcpCapabilities: { http: mcp !== undefined, sse: false },
-        sessionCapabilities: { list: {}, resume: {}, close: {}, delete: {}, fork: {} },
+        sessionCapabilities: { list: {}, resume: {}, close: {}, delete: {}, fork: {}, ...(this.host.canRename ? { title: {} } : {}) },
         // Prompts sent while a turn runs wait in the DSH queue. Not in the ACP schema: this is the
         // flag clients read to allow sending mid-turn, first advertised by claude-agent-acp.
         _meta: { claudeCode: { promptQueueing: true } },
@@ -158,6 +180,7 @@ export class AcpConnection implements AcpClient {
     const session = AcpSession.create(this.host, this.hub, this, this.log, { cwd: path, mcp,
       ...(catalog?.default ? { model: catalog.default } : {}), ...(permission ? { permission } : {}), ...(preset ? { preset } : {}) })
     this.sessions.set(session.id, session)
+    this.changed()
     return { sessionId: session.id, configOptions: await session.configOptions() }
   }
 
@@ -174,10 +197,12 @@ export class AcpConnection implements AcpClient {
     this.ensureOpen()
     const session = AcpSession.existing(this.host, this.hub, this, this.log, sessionId, path, mcp)
     this.sessions.set(sessionId, session)
+    this.changed()
     try {
       await session.open(replay)
     } catch (error) {
-      if (this.sessions.get(sessionId) === session) this.sessions.delete(sessionId)
+      if (this.sessions.get(sessionId) === session) { this.sessions.delete(sessionId); this.titles.delete(sessionId) }
+      this.changed()
       await session.close()
       throw error
     }
@@ -190,9 +215,38 @@ export class AcpConnection implements AcpClient {
     return session
   }
 
+  private async setTitle(id: string, title: string, signal: AbortSignal): Promise<{ title: string }> {
+    this.ensureOpen()
+    if (!this.host.canRename) throw RequestError.methodNotFound(SET_SESSION_TITLE)
+    const session = this.sessions.get(id)
+    try {
+      if (session && !session.closed) await session.prepareTitle()
+      else {
+        // The draft permits retitling a listed session without loading it on this connection.
+        const { items } = await this.host.controller.list({}, signal)
+        if (!items.some(item => item.sessionId === id && this.listable(item))) throw RequestError.resourceNotFound(id)
+      }
+      this.ensureOpen()
+      signal.throwIfAborted()
+      return { title: await this.host.rename(id, title) }
+    } catch (error) {
+      const code = record(error).code
+      if (code === 'session/title-invalid') throw RequestError.invalidParams(undefined, hostMessage(error))
+      if (code === 'session/not-found' || code === 'gateway/not-found') throw RequestError.resourceNotFound(id)
+      throw error
+    }
+  }
+
+  private listable(item: SessionSummary): boolean {
+    return item.origin !== 'subagent' && item.parentSessionId === undefined && !item.blank
+      && typeof item.cwd === 'string' && !this.host.workspaces.archivedSessionIds.includes(item.sessionId)
+  }
+
   private async closeSession(id: string): Promise<void> {
     const session = this.sessions.get(id)
     this.sessions.delete(id)
+    this.titles.delete(id)
+    if (session) this.changed()
     await session?.close()
   }
 
@@ -241,10 +295,8 @@ export class AcpConnection implements AcpClient {
       filter = await canonical(cwd)
     }
     const offset = decodeCursor(cursor)
-    const archived = new Set<string>(this.host.workspaces.archivedSessionIds)
     const { items } = await this.host.controller.list({}, signal)
-    const candidates = items.filter((item: SessionSummary) => item.origin !== 'subagent' && item.parentSessionId === undefined
-      && !item.blank && typeof item.cwd === 'string' && !archived.has(item.sessionId))
+    const candidates = items.filter(item => this.listable(item))
     // DSH keeps each session's directory as it was opened, links and all: compare both sides resolved.
     const resolved = new Map<string, Promise<string>>()
     const directoryOf = (path: string) => {
@@ -268,6 +320,11 @@ export class AcpConnection implements AcpClient {
   // ── AcpClient: calls back into the client ──────────────────────────────
 
   async update(sessionId: string, update: SessionUpdate): Promise<void> {
+    if (this.sessions.has(sessionId) && update.sessionUpdate === 'session_info_update'
+      && typeof update.title === 'string' && this.titles.get(sessionId) !== update.title) {
+      this.titles.set(sessionId, update.title)
+      this.changed()
+    }
     if (!this.connection) return
     await this.connection.client.notify(methods.client.session.update, { sessionId, update })
   }
@@ -297,6 +354,8 @@ export class AcpConnection implements AcpClient {
     return this.closing ??= (async () => {
       const sessions = [...this.sessions.values()]
       this.sessions.clear()
+      this.titles.clear()
+      this.changed()
       await Promise.allSettled(sessions.map(session => session.close()))
       this.connection?.close()
     })()

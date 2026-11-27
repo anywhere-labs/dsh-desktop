@@ -9,6 +9,7 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import z from '@deepseek-ai/schemastery'
 import { AcpBridge } from './bridge.js'
 import { fromCordis } from './acp/log.js'
+import { installManagement } from './management.js'
 import { defaultHome } from './paths.js'
 
 export const name = 'agents-anywhere-acp-bridge'
@@ -51,10 +52,12 @@ function rootOf(ctx: Context): Context {
 
 export function apply(ctx: Context, config: Config): void {
   const log = fromCordis(ctx.logger)
-  const bridge = new AcpBridge(ctx, { home: config.home || defaultHome() }, log)
+  const home = config.home || defaultHome()
+  const bridge = new AcpBridge(ctx, { home }, log)
   const active = rootOf(ctx).fiber.state
+  const started = bridge.start().catch(error => log.error('acp-bridge: ACP endpoint failed to start', error))
+  installManagement(ctx, bridge, home, started)
   ctx.effect(() => {
-    const started = bridge.start().catch(error => log.error('acp-bridge: ACP endpoint failed to start', error))
     return async () => {
       // Read before anything is awaited: the enclosing scopes are what tells the two apart.
       const alone = unloadedAlone(ctx, active)

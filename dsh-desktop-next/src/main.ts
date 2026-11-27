@@ -33,6 +33,7 @@ import { desktopLanAddresses } from './lan-addresses.ts'
 import { createLanHttpsCertificate, lanHttpsCertificateDiagnostic } from './lan-https-certificate.ts'
 import { desktopTerminalStateDirectory, openDesktopTerminal } from './desktop-terminal.ts'
 import { dshCommandArguments, dshCommandInvocation } from './dsh-command.ts'
+import { displaylessLaunch, displaylessRestartArguments } from './displayless.ts'
 import { createPackageRunner } from './extensions.ts'
 import { bundledPnpmEntry } from './bundled-pnpm.ts'
 import { applyDesktopPackageManagerPolicy } from './pnpm-policy.ts'
@@ -99,6 +100,12 @@ let dataSource = dataLocation.source
 // Linux has no tray terminal; `<app> dsh …` is its `dsh` command and never opens the desktop (#1568).
 const dshArguments = dshCommandArguments(process.argv, process.platform, process.defaultApp === true)
 if (dshArguments !== undefined) execDshCommand(dshArguments)
+// Linux without a display server: Chromium has already picked its platform, so restart on the headless one
+// before it sets up the interface. That launch has no tray or window and serves the user through browser access.
+const displaylessArguments = displaylessRestartArguments(process.platform, process.env, process.argv)
+if (displaylessArguments !== undefined) process.execve!(process.execPath, [process.execPath, ...displaylessArguments], process.env)
+const displayless = displaylessLaunch(process.platform, process.argv)
+if (displayless) app.disableHardwareAcceleration()
 const normalElectronData = join(home, 'electron-user-data')
 privateDirectory(normalElectronData)
 app.setName('DSH NEXT')
@@ -106,7 +113,9 @@ app.setName('DSH NEXT')
 // Chromium storage to the disposable environment.
 app.setPath('userData', normalElectronData)
 // app.exit() before the message loop exits at once; never let the replaced launch own the instance regardless.
-const ownsInstance = !startupElevation.relaunched && claimDesktopSingleInstance(app, openMain)
+// Without a display, another launch can only ask for the browser link again.
+const ownsInstance = !startupElevation.relaunched
+  && claimDesktopSingleInstance(app, () => { if (displayless) announceWithoutDisplay(true); else openMain() })
 const safeModeRequested = process.argv.includes(SAFE_ARGUMENT)
 const safeElectronData = join(normalElectronData, 'safe-mode')
 if (ownsInstance) {
@@ -154,6 +163,10 @@ let recoveryRequest: Promise<boolean | void> | undefined
 let pendingSettings: DesktopSettingsPage | undefined
 let quitting = false
 let onboarding = false
+/** A launch without a display that failed ends with a nonzero status instead of opening recovery. */
+let displaylessFailed = false
+/** The browser access link a launch without a display last printed. */
+let announcedBrowserLink: string | undefined
 let onboardingSurfaceActive = false
 let onboardingComputerUse = false
 let relaunch: string[] | undefined
@@ -193,6 +206,13 @@ if (ownsInstance) {
 const shellEnvironment = ownsInstance ? readShellEnvironment() : undefined
 const language = (): 'zh' | 'en' => windowsLanguage.toLowerCase().startsWith('zh') ? 'zh' : 'en'
 const t = (zh: string, en: string): string => language() === 'zh' ? zh : en
+if (!ownsInstance && displayless) {
+  windowsLanguage = preferredDesktopLocale(app.getPreferredSystemLanguages())
+  // This launch cannot tell how the running one started; each kind shows the link in its own place.
+  process.stderr.write(`${t(
+    'DSH NEXT 已在运行。如果它是在无桌面环境中启动的，会在自己的终端或服务日志里再打印一次浏览器访问链接；如果它运行在桌面上，请在它的设置里查看浏览器访问链接。',
+    'DSH NEXT is already running. Started without a desktop, it prints the browser access link again in its own terminal or service log; running on a desktop, it shows the link in its settings.')}\n`)
+}
 /** The official account plugin's embedded Platform page; the Host supplies its grant and the application renderer asks for pages. */
 const platformView = new DesktopPlatformView(join(root, 'lib', 'preload-platform-account.cjs'),
   () => language() === 'zh' ? 'zh_CN' : 'en_US', process.platform === 'darwin' || process.platform === 'win32' ? process.platform : null, dshVersion)
@@ -232,25 +252,35 @@ const runtime = new NextDesktopRuntime({
       throw error
     }
   },
-  onFailure: () => { if (app.isReady()) openControls('recovery') },
+  onFailure: () => {
+    if (!app.isReady()) return
+    if (displayless) stopWithoutDisplay()
+    else openControls('recovery')
+  },
   onChange: () => {
     if (!app.isReady()) return
     if (runtime.backend.state.phase === 'ready') rendererRecovery?.booted()
     native.refresh()
+    announceWithoutDisplay()
   },
   onRestart: () => run({ type: 'restart' }),
   onTerminal: () => run({ type: 'terminal' }),
-  onNotification: notification => native.notify(notification),
-  onStartupSlow: notice => quitting || !app.isReady() ? () => {} : native.notifyStartupSlow(notice),
+  onNotification: notification => { if (!displayless) native.notify(notification) },
+  onStartupSlow: notice => quitting || !app.isReady() || displayless ? () => {} : native.notifyStartupSlow(notice),
   onPlatformSession: session => platformView.setSession(session),
   onPlatformLogin: (request) => {
     if (quitting || !app.isReady()) return
     if (request.action === 'close') {
       platformLogin.close()
-      if (request.focus) openMain()
+      if (request.focus && !displayless) openMain()
       return
     }
     const url = platformLoginUrl(request.url)
+    // Without a display only the user's own browser can open the sign-in page.
+    if (displayless) {
+      process.stdout.write(`${t('在浏览器中打开以登录', 'Open in a browser to sign in')}: ${url}\n`)
+      return
+    }
     // A system browser reaches the Host's loopback callback only while browser access is on;
     // otherwise the built-in window replays the callback with the native credentials.
     if (runtime.state().browserUrl !== null) {
@@ -585,7 +615,8 @@ function createWindow(preload: string, primary = false): BrowserWindow {
 }
 
 function openSettings(page: DesktopSettingsPage = 'general'): void {
-  if (quitting) return
+  // Without a display there is no window to open; browser access is the only way in.
+  if (quitting || displayless) return
   if (onboarding) { openControls('onboarding'); return }
   if (runtime.recoveryMode || runtime.state().phase === 'error') { openControls('recovery'); return }
   pendingSettings = page
@@ -594,7 +625,7 @@ function openSettings(page: DesktopSettingsPage = 'general'): void {
 }
 
 function openControls(page: 'general' | 'profiles' | 'create-profile' | 'tools' | 'recovery' | 'permissions' | 'onboarding' = 'general'): void {
-  if (quitting) return
+  if (quitting || displayless) return
   if (page === 'general' || page === 'tools' || page === 'permissions') { openSettings(page === 'permissions' ? 'permissions' : 'general'); return }
   if (page === 'recovery' && !runtime.safeMode && !runtime.recoveryMode) {
     rendererRecovery?.stop()
@@ -635,7 +666,7 @@ function openControls(page: 'general' | 'profiles' | 'create-profile' | 'tools' 
   void shellWindow.loadURL(url).catch(error => runtime.diagnostics.append(String(error), 'error'))
 }
 function openMain(): void {
-  if (quitting || confirmingDataDirectory) return
+  if (quitting || confirmingDataDirectory || displayless) return
   if (runtime.recoveryMode || runtime.state().phase === 'error') { openControls('recovery'); return }
   if (onboarding) { openControls('onboarding'); return }
   if (mainWindow && !mainWindow.isDestroyed()) { show(mainWindow); return }
@@ -1035,7 +1066,10 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
       'safe-mode': t('在独立的临时环境中进入安全模式？原有数据和配置会保留。', 'Enter safe mode in a separate temporary environment? Existing data and configuration are preserved.'),
       'normal-mode': t('退出安全模式并重启原 Profile？', 'Exit Safe Mode and restart the original Profile?'),
     }
-    if (!await confirmed(messages[String(type)] ?? t('重启工作环境以应用更改？', 'Restart the environment to apply this change?'))) return
+    // Without a display only a Host plugin can ask for a restart, on behalf of the user in the browser, and no
+    // native dialog could answer it; the restarted Host prints its new browser link.
+    const unattended = displayless && type === 'restart'
+    if (!unattended && !await confirmed(messages[String(type)] ?? t('重启工作环境以应用更改？', 'Restart the environment to apply this change?'))) return
     if (type === 'switch') {
       runtime.profiles.select(next)
       relaunch = relaunchArguments(process.argv.slice(1), false, false)
@@ -1264,6 +1298,13 @@ async function confirmDataDirectory(): Promise<boolean> {
   if (change === undefined) { rememberLaunchDirectory(home); return true }
   const { previous, reachable } = change
   const source = { desktop: t('应用内选择', 'chosen in the app'), environment: DATA_DIRECTORY_VARIABLE, default: t('默认目录', 'default') }[dataSource]
+  // No dialog can ask without a display: keep this launch's directory, as the dialog's second button does.
+  if (displayless) {
+    process.stderr.write(`${t(`数据目录与上次不同，继续使用本次目录：${home}（${source}）；上次：${previous}`,
+      `The data directory differs from the last launch; continuing with ${home} (${source}); last launch: ${previous}`)}\n`)
+    rememberLaunchDirectory(home)
+    return true
+  }
   // No window exists yet; a relaunched macOS app is not activated on its own.
   if (process.platform === 'darwin') app.focus({ steal: true })
   confirmingDataDirectory = true
@@ -1640,8 +1681,11 @@ async function main(): Promise<void> {
       runtime.report(error, 'profile-composition')
     }
   }
-  native.createTray()
-  updates.start()
+  // Without a display the tray's GTK fallback ends the process, and nothing could show an update either.
+  if (!displayless) {
+    native.createTray()
+    updates.start()
+  }
   Menu.setApplicationMenu(process.platform === 'win32' ? null : Menu.buildFromTemplate(
     roleApplicationMenuTemplate(native.items(), windowsLanguage),
   ))
@@ -1676,7 +1720,8 @@ async function main(): Promise<void> {
       if (validColor(symbolColor)) mainWindow!.setTitleBarOverlay({ color: WINDOWS_CAPTION_FILL, symbolColor })
     })
   }
-  if (runtime.recoveryMode) openControls('recovery')
+  if (displayless) startWithoutDisplay()
+  else if (runtime.recoveryMode) openControls('recovery')
   else if (onboarding) openControls('onboarding')
   else {
     void runtime.start().catch(() => {})
@@ -1684,15 +1729,78 @@ async function main(): Promise<void> {
     if (!process.argv.includes(BACKGROUND_ARGUMENT) || !native.available) openMain()
   }
   app.on('activate', openMain)
-  app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !native.available && !replacingWindow) app.quit() })
+  app.on('window-all-closed', () => { if (process.platform !== 'darwin' && !native.available && !replacingWindow && !displayless) app.quit() })
+}
+
+/**
+ * Linux without a display server: no setup page, tray or window. Setup is skipped as its Skip button does, which
+ * leaves the optional plugins and Computer Use off, and browser access turns on, limited to this computer unless
+ * the user already widened it. The Host then serves the selected Profile at the link `announceWithoutDisplay` prints.
+ */
+function startWithoutDisplay(): void {
+  if (runtime.recoveryMode) { stopWithoutDisplay(); return }
+  if (runtime.safeMode) {
+    process.stderr.write(`${t('安全模式没有浏览器访问，请在桌面环境中使用。', 'Safe Mode has no browser access; use it in a desktop environment.')}\n`)
+    displaylessFailed = true
+    quitWithoutConfirmation()
+    return
+  }
+  try {
+    if (onboarding && runtime.profiles.onboardingRequired(runtime.selected)) runtime.profiles.finishOnboarding(runtime.selected)
+    onboarding = false
+    if (!runtime.preferences.browserAccess) runtime.writePreferences({ ...runtime.preferences, browserAccess: true, networkExposure: 'loopback' })
+  } catch (error) {
+    runtime.recoveryMode = true
+    runtime.report(error, 'runtime-bootstrap')
+    stopWithoutDisplay()
+    return
+  }
+  void runtime.start().catch(() => {})
+}
+
+/** Without the recovery assistant, a failure ends the process with its reason, so a terminal or a service manager sees it. */
+function stopWithoutDisplay(): void {
+  if (displaylessFailed || quitting) return
+  displaylessFailed = true
+  const failure = runtime.state().failure
+  const lines = [
+    t(`DSH NEXT 已停止：${failure || '需要在桌面环境中修复'}`, `DSH NEXT stopped: ${failure || 'it needs a desktop environment to recover'}`),
+    `${t('日志', 'Log')}: ${runtime.diagnostics.file}`,
+  ]
+  void runtime.failureReportFile().catch(() => undefined).then(file => {
+    process.stderr.write(`${[...lines, ...file === undefined ? [] : [`${t('故障报告', 'Failure report')}: ${file}`]].join('\n')}\n`)
+    quitWithoutConfirmation()
+  })
+}
+
+/**
+ * Print the browser access link whenever a Host serving it becomes ready: each Host start has its own login token,
+ * and a browser that signed in before stays signed in. `force` repeats it when another launch asks.
+ */
+function announceWithoutDisplay(force = false): void {
+  if (!displayless || quitting || runtime.backend.state.phase !== 'ready') return
+  const { localUrl, lanUrls } = runtime.browserLinks()
+  if (localUrl === null || (!force && localUrl === announcedBrowserLink)) return
+  announcedBrowserLink = localUrl
+  const port = new URL(localUrl).port
+  process.stdout.write(`${[
+    t(`DSH NEXT 正在无桌面环境中运行（Profile：${runtime.selected}）。`,
+      `DSH NEXT is running without a desktop environment (Profile: ${runtime.selected}).`),
+    `${t('在浏览器中打开', 'Open in a browser')}: ${localUrl}`,
+    ...lanUrls.map(url => `${t('局域网内打开', 'Open on the local network')}: ${url}`),
+    t(`在其他电脑上访问时，先转发端口：ssh -L ${port}:127.0.0.1:${port} <用户>@<本机地址>`,
+      `From another computer, forward the port first: ssh -L ${port}:127.0.0.1:${port} <user>@<this machine>`),
+    t('拿到此链接的人都能登录，请勿分享。', 'Anyone with this link can sign in; keep it private.'),
+  ].join('\n')}\n`)
 }
 
 app.on('before-quit', event => {
   if (quitting || !ownsInstance) return
   event.preventDefault()
   // An approved quit, the update installer's handoff and the end of the OS session do not ask; without a
-  // ready Host nothing can be running, so the quit proceeds at once.
-  if (skipQuitConfirmation || installingUpdate || sessionEnding || runtime.backend.host === undefined) { shutDown(); return }
+  // ready Host nothing can be running, so the quit proceeds at once. Without a display nobody could answer:
+  // the quit is a terminal's Ctrl+C or a service manager's stop.
+  if (skipQuitConfirmation || installingUpdate || sessionEnding || displayless || runtime.backend.host === undefined) { shutDown(); return }
   void quitConfirmation.confirm().then((approved) => {
     if (quitting) return
     if (approved) shutDown()
@@ -1751,7 +1859,7 @@ function shutDown(): void {
       }
     }
     runtime.diagnostics.end(clean)
-    if (!clean) { app.exit(1); return }
+    if (!clean || displaylessFailed) { app.exit(1); return }
     if (relaunch) relaunchApp(app, relaunch)
     app.quit()
   }
@@ -1796,7 +1904,10 @@ if (ownsInstance) {
       language: preferredDesktopLocale([...app.getPreferredSystemLanguages(), app.getLocale()]) }),
     record: (failure, elevation) => runtime.diagnostics.record({ source: 'electron', event: 'sandbox.launch-failed', level: 'error',
       fields: { process: failure.process, code: failure.code, elevated: elevation?.elevated ?? null, elevationType: elevation?.type ?? null } }),
-    show: text => { dialog.showMessageBoxSync({ type: 'error', title: text.title, message: text.message, detail: text.detail, buttons: [text.button], defaultId: 0, noLink: true }) },
+    show: text => {
+      if (displayless) { process.stderr.write(`${text.title}: ${text.message}\n${text.detail}\n`); return }
+      dialog.showMessageBoxSync({ type: 'error', title: text.title, message: text.message, detail: text.detail, buttons: [text.button], defaultId: 0, noLink: true })
+    },
     exit: () => { runtime.memory.stop(); runtime.diagnostics.end(false); app.exit(1) },
   })
   app.on('child-process-gone', (_event, details) => {

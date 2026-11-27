@@ -49,6 +49,13 @@ __metadata:
     "@deepseek-ai/dsh-brand": "npm:0.2.3-alpha.2"
     "@deepseek-ai/dsh-client-connection": "npm:0.2.3-alpha.2"
     "@deepseek-ai/dsh-client-file-upload": "npm:0.2.3-alpha.2"
+    "@deepseek-ai/dsh-client-locale": "npm:0.2.3-alpha.2"
+    "@deepseek-ai/dsh-client-ui-plugin-manager": "npm:0.2.3-alpha.2"
+    "@deepseek-ai/dsh-client-ui-primitives": "npm:0.2.3-alpha.2"
+    "@deepseek-ai/dsh-client-ui-renderer": "npm:0.2.3-alpha.2"
+    "@deepseek-ai/dsh-client-ui-settings": "npm:0.2.3-alpha.2"
+    "@deepseek-ai/dsh-client-ui-slots": "npm:0.2.3-alpha.2"
+    "@deepseek-ai/dsh-client-ui-workspace": "npm:0.2.3-alpha.2"
     "@deepseek-ai/dsh-commands": "npm:0.2.3-alpha.2"
     "@deepseek-ai/dsh-compaction": "npm:0.2.3-alpha.2"
     "@deepseek-ai/dsh-credentials": "npm:0.2.3-alpha.2"
@@ -102,18 +109,27 @@ __metadata:
     "@deepseek-ai/dsh-workspace": "npm:0.2.3-alpha.2"
     "@deepseek-ai/schemastery": "npm:3.20.0-alpha.1"
     "@types/node": "npm:^24.13.3"
+    "@types/react": "npm:^18"
     "@types/ws": "npm:8.18.1"
+    lightningcss: "npm:1.32.0"
     meshcall: "npm:0.3.0"
+    react: "npm:18.3.1"
     tsdown: "npm:0.22.14"
     tsx: "npm:4.21.0"
     typescript: "npm:5.9.3"
     zod: "npm:^4.1.0"
   peerDependencies:
     "@deepseek-ai/cordis": ~4.0.4 || ~4.1.0 || ~4.2.0-alpha.1
+    "@deepseek-ai/dsh-client-connection": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0"
+    "@deepseek-ai/dsh-home-paths": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0"
     "@deepseek-ai/dsh-mcp-client": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0"
     "@deepseek-ai/dsh-scope": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0"
     "@deepseek-ai/dsh-typert-protocol": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0"
     "@deepseek-ai/schemastery": ~3.18.4 || ~3.19.0 || ~3.20.0-alpha.1
+    react: ^18.3.1
+  peerDependenciesMeta:
+    react:
+      optional: true
   bin:
     dsh-acp-bridge: ./lib/stdio.js
   languageName: unknown
@@ -3378,7 +3394,7 @@ __metadata:
 
 "@deepseek-ai/dsh-client-ui-plugin-manager@patch:@deepseek-ai/dsh-client-ui-plugin-manager@file%3Avendor/dsh-runtime/0.2.3-alpha.2/deepseek-ai-dsh-client-ui-plugin-manager-0.2.3-alpha.2.tgz#./patches/dsh-client-ui-plugin-manager@0.2.3-alpha.2.patch::locator=deepseek-harness-desktop%40workspace%3A.":
   version: 0.2.3-alpha.2
-  resolution: "@deepseek-ai/dsh-client-ui-plugin-manager@patch:@deepseek-ai/dsh-client-ui-plugin-manager@file%3Avendor/dsh-runtime/0.2.3-alpha.2/deepseek-ai-dsh-client-ui-plugin-manager-0.2.3-alpha.2.tgz%23vendor/dsh-runtime/0.2.3-alpha.2/deepseek-ai-dsh-client-ui-plugin-manager-0.2.3-alpha.2.tgz%3A%3Ahash=2c46be&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-client-ui-plugin-manager@0.2.3-alpha.2.patch::version=0.2.3-alpha.2&hash=2ba735&locator=deepseek-harness-desktop%40workspace%3A."
+  resolution: "@deepseek-ai/dsh-client-ui-plugin-manager@patch:@deepseek-ai/dsh-client-ui-plugin-manager@file%3Avendor/dsh-runtime/0.2.3-alpha.2/deepseek-ai-dsh-client-ui-plugin-manager-0.2.3-alpha.2.tgz%23vendor/dsh-runtime/0.2.3-alpha.2/deepseek-ai-dsh-client-ui-plugin-manager-0.2.3-alpha.2.tgz%3A%3Ahash=2c46be&locator=deepseek-harness-desktop%2540workspace%253A.#./patches/dsh-client-ui-plugin-manager@0.2.3-alpha.2.patch::version=0.2.3-alpha.2&hash=7130f8&locator=deepseek-harness-desktop%40workspace%3A."
   dependencies:
     "@deepseek-ai/dsh-timeout": "npm:0.2.3-alpha.2"
     "@deepseek-ai/dsh-typert-protocol": "npm:0.2.3-alpha.2"
@@ -3386,7 +3402,7 @@ __metadata:
     zod: "npm:4.6.6"
   peerDependencies:
     "@deepseek-ai/cordis": ~4.2.0-alpha.1
-  checksum: 10c0/66eb3332f07722c9fc37e0b09336a9e559ff8552663f0d9647f946b0a0659cb3c3139ba0a53ab30a7b03458c41af38967254c667333bf47e554ad33c6bcdab11
+  checksum: 10c0/5d1fd8ee75d302c9c3cf2e66bbd4d158d0fa2b5c96242be2d7c949f68a9822adbdd76bc67a16fb22d0963139d3daa73caa684446e63f4658f1006ae7fcf0f513
   languageName: node
   linkType: hard
 

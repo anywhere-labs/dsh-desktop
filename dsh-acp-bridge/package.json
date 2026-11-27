@@ -18,7 +18,8 @@
     },
     "./client": {
       "types": "./lib/client.d.ts",
-      "default": "./lib/client.js"
+      "node": "./lib/client.js",
+      "default": "./lib/panel.js"
     },
     "./stdio": "./lib/stdio.js",
     "./cordis.patch.yml": "./cordis.patch.yml",
@@ -28,6 +29,7 @@
   "files": [
     "lib",
     "locale",
+    "docs",
     "cordis.patch.yml",
     "README.md",
     "README.zh.md",
@@ -38,13 +40,22 @@
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-renderer",
+        "@deepseek-ai/dsh-client-ui-plugin-manager",
+        "@deepseek-ai/dsh-client-ui-workspace",
+        "@deepseek-ai/dsh-client-locale"
+      ]
     }
   },
   "scripts": {
     "clean": "node scripts/clean.ts",
     "build": "yarn clean && tsdown",
     "dev": "tsdown --watch",
-    "typecheck": "tsc -p tsconfig.host.json && tsc -p tsconfig.test.json",
+    "typecheck": "tsc -p tsconfig.host.json && tsc -p tsconfig.test.json && tsc -p tsconfig.panel.json",
     "test": "tsx --test tests/unit/*.test.ts tests/integration/*.test.ts",
     "check": "yarn typecheck && yarn build && yarn test",
     "smoke": "tsx scripts/smoke.ts",
@@ -52,10 +63,13 @@
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "~4.0.4 || ~4.1.0 || ~4.2.0-alpha.1",
+    "@deepseek-ai/dsh-client-connection": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0",
+    "@deepseek-ai/dsh-home-paths": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0",
     "@deepseek-ai/dsh-mcp-client": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0",
     "@deepseek-ai/dsh-scope": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0",
     "@deepseek-ai/dsh-typert-protocol": ">=0.2.2-rc.1 <0.3.0-0 || >=0.2.3-alpha.1 <0.3.0-0",
-    "@deepseek-ai/schemastery": "~3.18.4 || ~3.19.0 || ~3.20.0-alpha.1"
+    "@deepseek-ai/schemastery": "~3.18.4 || ~3.19.0 || ~3.20.0-alpha.1",
+    "react": "^18.3.1"
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "1.4.0",
@@ -84,6 +98,13 @@
     "@deepseek-ai/dsh-brand": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-client-connection": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-client-file-upload": "0.2.3-alpha.2",
+    "@deepseek-ai/dsh-client-locale": "0.2.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-plugin-manager": "0.2.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-primitives": "0.2.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-renderer": "0.2.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-settings": "0.2.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-slots": "0.2.3-alpha.2",
+    "@deepseek-ai/dsh-client-ui-workspace": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-commands": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-compaction": "0.2.3-alpha.2",
     "@deepseek-ai/dsh-credentials": "0.2.3-alpha.2",
@@ -137,7 +158,10 @@
     "@deepseek-ai/dsh-workspace": "0.2.3-alpha.2",
     "@deepseek-ai/schemastery": "3.20.0-alpha.1",
     "@types/node": "^24.13.3",
+    "@types/react": "^18",
     "@types/ws": "8.18.1",
+    "lightningcss": "1.32.0",
+    "react": "18.3.1",
     "tsdown": "0.22.14",
     "tsx": "4.21.0",
     "typescript": "5.9.3"
@@ -145,5 +169,10 @@
   "engines": {
     "node": "^22.19.0 || >=24"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
 }

@@ -36,6 +36,8 @@ export interface AcpClient {
   elicit(params: Fields, signal: AbortSignal): Promise<Fields>
   /** The client stopped reading: updates pile up in the DSH process. */
   overloaded(): void
+  /** Session metadata changed independently of an ACP request, such as archival in DSH. */
+  sessionsChanged?(): void
 }
 
 type Mode = 'replay' | 'fold' | 'live'
@@ -199,6 +201,15 @@ export class AcpSession implements InteractionTarget {
 
   get closed(): boolean { return this.state === 'closed' }
 
+  get workingDirectory(): string { return this.cwd }
+
+  /** A client may name a new session before sending its first prompt. */
+  async prepareTitle(): Promise<void> {
+    if (this.closed) throw closedError()
+    await this.materialize()
+    if (this.closed) throw closedError()
+  }
+
   /** This client has prompts in the session that have not ended yet. */
   get busy(): boolean { return this.inflights.length > 0 }
 
@@ -296,6 +307,7 @@ export class AcpSession implements InteractionTarget {
     if (this.state === 'closed') return
     this.flushDelta()
     this.state = 'closed'
+    this.client.sessionsChanged?.()
     this.hub.remove(this)
     this.interactions.abort()
     if (this.stallTimer) clearTimeout(this.stallTimer)
@@ -1407,6 +1419,7 @@ export class AcpSession implements InteractionTarget {
     if (this.inflights.length) await this.cancel().catch(error => this.log.debug('acp-bridge: cancel on close failed', error))
     this.flushDelta()
     this.state = 'closed'
+    this.client.sessionsChanged?.()
     this.hub.remove(this)
     this.interactions.abort()
     this.follow?.abort()

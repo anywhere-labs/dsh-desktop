@@ -66,6 +66,18 @@ export class DshHost {
   get controller() { return this.ctx.sessionController }
   get workspaces() { return this.ctx.workspaceRegistry }
 
+  get canRename(): boolean { return this.ctx.get('sessionTitle') !== undefined }
+
+  /** Official rename pins a user title; acknowledge only after its durable event has been flushed. */
+  async rename(id: string, title: string): Promise<string> {
+    const sessions = this.ctx.get('sessions')
+    if (!sessions) throw new HostError('DSH session storage is unavailable')
+    const accepted = await this.controller.rename({ sessionId: id as SessionId, title })
+    const agent = await this.agent(id)
+    await sessions.flush(agent.session)
+    return accepted.title
+  }
+
   /** The model DSH gives a session that has not chosen one. */
   defaultModel(): ModelSelection | undefined {
     try { return this.ctx.get('agentDefaultModel')?.currentSelection() } catch { return undefined }

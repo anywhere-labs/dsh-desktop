@@ -4,6 +4,7 @@
  * contract.ts): records of another contract version are skipped. Node built-ins only.
  */
 
+import { parseApplication } from './applications.js'
 import { createHmac, randomUUID, timingSafeEqual } from 'node:crypto'
 import { chmod, mkdir, readdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
@@ -25,6 +26,8 @@ export interface EndpointRecord {
   bridgeVersion: string
   runtimeVersion?: string
   /** What this instance's launcher runs, so that it can take the launcher over when another instance unloads. */
+  application?: import('./applications.js').Application
+  profileDirectory?: string
   launcher?: LauncherTarget
 }
 
@@ -38,7 +41,9 @@ function launcherTarget(value: unknown): LauncherTarget | undefined {
   const target = object(value)
   return target && typeof target.runtime === 'string' && target.runtime && typeof target.electron === 'boolean'
     && typeof target.script === 'string' && target.script
-    ? { runtime: target.runtime, electron: target.electron, script: target.script }
+    ? { runtime: target.runtime, electron: target.electron, script: target.script,
+      ...(typeof target.home === 'string' ? { home: target.home } : {}),
+      ...(typeof target.dshHome === 'string' ? { dshHome: target.dshHome } : {}) }
     : undefined
 }
 
@@ -58,11 +63,14 @@ export function parseRecord(text: string): EndpointRecord | undefined {
     || typeof value.bridgeVersion !== 'string') return undefined
   // Optional fields that do not parse are left out; the record itself stays usable.
   const launcher = launcherTarget(value.launcher)
+  const application = parseApplication(value.application)
   return {
     version: CONTRACT_VERSION, protocol: 'meshcall', service: RPC_SERVICE, instanceId: value.instanceId, pid: value.pid,
     startedAt: value.startedAt, endpoint: local, token: value.token, bridgeVersion: value.bridgeVersion,
     ...(typeof value.runtimeVersion === 'string' ? { runtimeVersion: value.runtimeVersion } : {}),
     ...(launcher ? { launcher } : {}),
+    ...(application ? { application } : {}),
+    ...(typeof value.profileDirectory === 'string' ? { profileDirectory: value.profileDirectory } : {}),
   }
 }
 
