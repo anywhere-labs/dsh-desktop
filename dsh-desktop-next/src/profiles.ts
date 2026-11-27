@@ -409,17 +409,23 @@ export function loadNextProfile(projectDir: string, home: string, installAnchor 
   const profile = loadProfileDirectory('dsh-desktop-next', projectDir, installAnchor)
   profile.layers.push({ packageName: 'dsh-desktop-next', packageDir: target,
     patchPaths: [NEXT_BUNDLE_PATCH], patches: loadOverlayPatches('dsh-desktop-next', NEXT_BUNDLE_PATCH) })
-  const overlay = [
+  syncAgentsAnywhereOverlay(profile, home, installAnchor)
+  return profile
+}
+
+function syncAgentsAnywhereOverlay(profile: Profile, home: string, installAnchor: string): void {
+  const overlay = profile.layers.some(layer => layer.packageName === AA_PACKAGE) ? [
     { id: 'agents-anywhere-bridge-next', config: {
       dshHome: home,
       ...archivedAgentsAnywhereConfig(installAnchor),
     } },
-  ]
+  ] : []
   // Leave AA stateRoot unset to share its default credentials and device binding with Stable/Beta.
-  // Rewriting the generated overlay also removes the former per-Profile stateRoot on upgrade.
-  // The official manager still owns per-Profile bundle/row enablement.
-  atomicJson(join(projectDir, 'desktop-next.cordis.patch.json'), overlay)
-  return profile
+  // Keep an empty patch when AA is absent because the Host always passes this file to DSH.
+  // HMR watches the file, so only write when the generated configuration changes.
+  const path = join(profile.dir, 'desktop-next.cordis.patch.json')
+  const text = `${JSON.stringify(overlay, null, 2)}\n`
+  if (readPrivateFile(path) !== text) atomicText(path, text)
 }
 
 /**
@@ -449,6 +455,7 @@ export function readNextProfilePatches(projectDir: string, home: string, overlay
   profile.patches = profilePatches === undefined
     ? existsSync(profile.patchPath) ? loadOverlayPatches('dsh-desktop-next', profile.patchPath) : []
     : [...profilePatches]
+  syncAgentsAnywhereOverlay(profile, home, NEXT_PACKAGE)
   const context: ProfileContext = { name: basename(projectDir), dir: projectDir, patchPath: profile.patchPath,
     installAnchor: NEXT_PACKAGE, cwd: process.cwd(), home, startedBundles: profile.layers.map(layer => layer.packageName),
     ...profileOverlays('dsh-desktop-next', overlays),
