@@ -218,6 +218,26 @@ function patchPackage(name, edit, entry = () => 'lib/client.js') {
   } finally { rmSync(temp, { recursive: true, force: true }) }
 }
 
+// An anchor inset wrapped in max() is no longer a linear function of anchor(top). Blink compensates a scrolling
+// anchor after layout, so the clamp keeps an upward popover at 12px and it drifts away from its trigger as the
+// conversation above it scrolls. Upstream's ModelSelect.module.css keeps its insets linear for the same reason.
+const LINEAR_CHAT_INSETS = [
+  ['top:max(12px, var(--dsh-frame-overlay-top,12px));bottom:max(12px, calc(anchor(top) + 8px));left:max(12px, anchor(left));',
+    'top:max(12px, var(--dsh-frame-overlay-top,12px));bottom:calc(anchor(top) + 8px);left:max(12px, anchor(left));'],
+  ['top:max(12px, var(--dsh-frame-overlay-top,12px));bottom:max(12px, calc(anchor(top) + 8px));left:12px;right:12px;margin:0',
+    'top:max(12px, var(--dsh-frame-overlay-top,12px));bottom:calc(anchor(top) + 8px);left:12px;right:12px;margin:0'],
+]
+// The same clamp in the menu primitives, and in the frontend build that bundles their stylesheet.
+const LINEAR_MENU_INSETS = [
+  ['[data-anchor-side=top]{top:var(--dsh-menu-window-top);bottom:max(12px, calc(anchor(top) + 4px));',
+    '[data-anchor-side=top]{top:var(--dsh-menu-window-top);bottom:calc(anchor(top) + 4px);'],
+  ['@position-try --dsh-menu-above{top:var(--dsh-menu-window-top);bottom:max(12px, calc(anchor(top) + 4px));',
+    '@position-try --dsh-menu-above{top:var(--dsh-menu-window-top);bottom:calc(anchor(top) + 4px);'],
+  ['@position-try --dsh-menu-wide-above{top:var(--dsh-menu-window-top);bottom:max(12px, calc(anchor(top) + 4px));',
+    '@position-try --dsh-menu-wide-above{top:var(--dsh-menu-window-top);bottom:calc(anchor(top) + 4px);'],
+]
+const linearAnchors = (edits, { once }) => { for (const [before, after] of edits) once(before, after) }
+
 patchPackage('dsh-client-ui-settings-account', ({ once, replaceFunction, append }) => {
   const body = onboarding.toString().slice(onboarding.toString().indexOf('{') + 1, -1)
   once('function DesktopOnboardingEntry(', `${body}\nfunction OfficialDesktopOnboardingEntry(`)
@@ -333,6 +353,28 @@ patchPackage('dsh-client-ui-conversation', ({ once }) => {
   `)
   once('setDraft(text,undoable=false){const clean=text.replace(REFERENCE_PLACEHOLDER_RE,',
     'setDraft(text,undoable=false){const clean=(typeof text === "string" ? text : "").replace(REFERENCE_PLACEHOLDER_RE,')
+  // The ContextMeter's panel and position fallback above the sticky composer follow the anchor linearly.
+  linearAnchors(LINEAR_CHAT_INSETS, { once })
+})
+
+// The StatsPills dialog's panel and its position fallback above the composer follow the anchor linearly.
+patchPackage('dsh-client-ui-chat', edit => linearAnchors(LINEAR_CHAT_INSETS, edit))
+
+patchPackage('dsh-client-ui-approval', ({ once }) => {
+  once('position-area:none;top:var(--dsh-warning-window-top);bottom:max(12px, calc(anchor(top) + 8px));left:12px;right:max(12px, anchor(',
+    'position-area:none;top:var(--dsh-warning-window-top);bottom:calc(anchor(top) + 8px);left:12px;right:max(12px, anchor(')
+})
+
+// Menus that open above their trigger, and the wide variant, keep the inset linear too.
+patchPackage('dsh-client-ui-primitives', edit => linearAnchors(LINEAR_MENU_INSETS, edit), () => 'lib/index.js')
+
+// The published frontend bundles the primitives' stylesheet into its entry chunk.
+patchPackage('dsh-web-frontend', edit => linearAnchors(LINEAR_MENU_INSETS, edit), cwd => {
+  const folder = 'dist/assets'
+  const matches = readdirSync(join(cwd, folder)).filter(file => /^index-.*\.js$/u.test(file)
+    && readFileSync(join(cwd, folder, file), 'utf8').includes('--dsh-menu-wide-above'))
+  assert.equal(matches.length, 1, 'official web frontend entry chunk')
+  return `${folder}/${matches[0]}`
 })
 
 // The hosted Chromium inspector still supplies a no-op embedder callback; Reload otherwise never completes.
