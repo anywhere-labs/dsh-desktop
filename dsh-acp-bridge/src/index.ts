@@ -52,11 +52,12 @@ function rootOf(ctx: Context): Context {
 
 export function apply(ctx: Context, config: Config): void {
   const log = fromCordis(ctx.logger)
-  const bridge = new AcpBridge(ctx, { home: config.home || defaultHome() }, log)
-  installManagement(ctx, bridge, config.home || defaultHome())
+  const home = config.home || defaultHome()
+  const bridge = new AcpBridge(ctx, { home }, log)
   const active = rootOf(ctx).fiber.state
+  const started = bridge.start().catch(error => log.error('acp-bridge: ACP endpoint failed to start', error))
+  installManagement(ctx, bridge, home, started)
   ctx.effect(() => {
-    const started = bridge.start().catch(error => log.error('acp-bridge: ACP endpoint failed to start', error))
     return async () => {
       // Read before anything is awaited: the enclosing scopes are what tells the two apart.
       const alone = unloadedAlone(ctx, active)

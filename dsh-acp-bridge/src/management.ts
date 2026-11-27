@@ -41,7 +41,7 @@ export async function managementState(bridge: AcpBridge, home: string): Promise<
     cliAvailable: Boolean(process.versions.electron && cli && await exists(cli)), profiles: await listProfiles(resolveDshHome()), checks,
     ...(lastStart ? { lastStart } : {}) }
 }
-export function installManagement(ctx: Context, bridge: AcpBridge, home: string): void {
+export function installManagement(ctx: Context, bridge: AcpBridge, home: string, started: Promise<void>): void {
   let saves: Promise<unknown> = Promise.resolve()
   ctx.inject(['connection'], inner => {
     const streams = new Set<() => void>()
@@ -90,6 +90,8 @@ export function installManagement(ctx: Context, bridge: AcpBridge, home: string)
       fetch: async (request: Request) => {
         const headers = { 'cache-control': 'no-store' }
         try {
+          // The first diagnostics request can arrive while the launcher is still being written.
+          await started
           if (request.method === 'POST') {
             const body = await request.json() as { action?: unknown; settings?: unknown }
             const operation = saves.then(async () => {

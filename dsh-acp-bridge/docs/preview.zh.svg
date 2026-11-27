@@ -1,7 +1,7 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="960" height="440" viewBox="0 0 960 440" role="img" aria-labelledby="title description">
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="300" viewBox="0 0 960 450" role="img" aria-labelledby="title description">
   <title id="title">让你的应用，接入 DSH</title>
   <desc id="description">外部应用通过 ACP 连接 DSH，共用会话、模型与工具；支持自动启动。</desc>
-  <rect width="960" height="440" rx="16" fill="#F5F6FC"/>
+  <rect width="960" height="450" rx="15" fill="#F5F6FC"/>
   <g font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif">
     <text x="48" y="65" font-size="32" font-weight="600" fill="#202B49">让你的应用，接入 DSH</text>
     <text x="48" y="99" font-size="17" fill="#7A859E">通过 ACP，共用已有的会话、模型与工具</text>

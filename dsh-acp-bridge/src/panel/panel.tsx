@@ -2,12 +2,15 @@
  * The ACP bridge's section on its plugin detail page. Sections, fact lists and status lines follow the
  * page's own (来源信息, 版本), and every control is a shared official primitive; nothing here styles itself.
  */
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Button, DisclosureRow, IconCheckOutlineRegular, IconChevronDownOutlineRegular, IconCopyOutlineRegular, IconRefreshOutlineRegular,
   SettingsForm, SettingsValueField, StateDot, Switch, useClipboardCopy,
 } from '@deepseek-ai/dsh-client-ui-primitives'
-import { detail, field } from './official-styles.js'
+import nextIcon from './icons/next.png'
+import betaIcon from './icons/beta.png'
+import officialIcon from './icons/official.png'
+import { cua, detail, field } from './official-styles.js'
 import { CONNECTIONS_PATH, type ConnectionState, type ManagementState, type StartupSettings } from '../management-contract.js'
 import { callManagement, ManagementError, managementErrorText, readManagementWhenReady } from './management-client.js'
 import { latestConnectionState, watchConnections, type LiveStatus } from './connections.js'
@@ -15,6 +18,8 @@ import { latestConnectionState, watchConnections, type LiveStatus } from './conn
 type Translate = (zh: string, en: string) => string
 /** Each action marks only its own control busy. */
 type Action = 'check' | 'save' | 'repair' | 'preference' | 'application'
+
+const applicationIcons = { next: nextIcon, beta: betaIcon, official: officialIcon, other: undefined }
 
 const CHECK_LABELS: Record<string, string> = { Launcher: '启动脚本', Plugin: '插件文件', Runtime: '运行环境', 'Startup settings': '启动设置' }
 
@@ -29,7 +34,6 @@ export function Panel({ language }: { language: string }) {
   const [preferenceError, setPreferenceError] = useState('')
   const [applicationError, setApplicationError] = useState('')
   const [pendingEnabled, setPendingEnabled] = useState<boolean>()
-  const [advancedOpen, setAdvancedOpen] = useState(false)
   const [diagnosticsOpen, setDiagnosticsOpen] = useState(false)
   const [live, setLive] = useState<ConnectionState>()
   const [liveStatus, setLiveStatus] = useState<LiveStatus>('connecting')
@@ -138,11 +142,15 @@ export function Panel({ language }: { language: string }) {
   const selected = state.profiles.find(profile => profile.name === draft.profile)
   const applications = state.applications ?? []
   const selectedApp = applications.find(app => app.id === state.settings.defaultApp) ?? applications.find(app => app.id === state.defaultApp)
-  const appLabel = (app: typeof applications[number]) => {
+  const renderApplication = (app: typeof applications[number]) => {
     const sameName = applications.filter(other => other.name === app.name)
     const profile = sameName.length > 1 ? ` · ${app.profile}` : ''
     const directory = sameName.some(other => other.id !== app.id && other.profile === app.profile) ? ` · ${app.dshHome}` : ''
-    return `${app.name}${profile}${directory}`
+    const icon = applicationIcons[app.kind]
+    return <span className={`${cua.application} ${field.label}`}>
+      {icon ? <img src={icon} width={32} height={32} alt="" draggable={false} /> : <span className={cua.iconPlaceholder} aria-hidden />}
+      <span>{app.name}{profile}{directory}</span>
+    </span>
   }
   const launchable = Boolean(selectedApp) || (draft.mode === 'desktop' ? state.desktopAvailable : state.cliAvailable && selected?.valid === true)
   // Damaged saved settings stay savable, so the panel can overwrite them.
@@ -152,8 +160,9 @@ export function Panel({ language }: { language: string }) {
   const managing = busy.size > 0
   const failedChecks = state.checks.filter(check => !check.ok)
   const settingsDamaged = failedChecks.some(check => check.label === 'Startup settings')
-  const healthy = state.ready && failedChecks.length === 0
-  const connections = live ?? state.live
+  const connections = live ? latestConnectionState(state.live, live) : state.live
+  const healthy = connections.ready && failedChecks.length === 0
+  const autoStartEnabled = pendingEnabled ?? state.settings.enabled
   const toggleLabel = t('自动启动 DSH', 'Automatically start DSH')
   return <div className={detail.installedPanel}>
     <section className={detail.detailSection} aria-label={t('连接', 'Connection')}>
@@ -182,56 +191,52 @@ export function Panel({ language }: { language: string }) {
       <div className={field.field}>
         <div className={field.head}>
           <span className={field.label}>{toggleLabel}</span>
-          <Switch label={toggleLabel} checked={pendingEnabled ?? state.settings.enabled} disabled={managing}
+          <Switch label={toggleLabel} checked={autoStartEnabled} disabled={managing}
             onChange={enabled => { void act('preference', { ...state.settings, enabled }) }} />
         </div>
         <p className={field.hint}>{t('客户端连接时，若 DSH 未运行则自动启动。', 'Start DSH when a client connects if it is not running.')}</p>
         {preferenceError && <p className={detail.reason} role="alert">{preferenceError}</p>}
       </div>
     </section>
-    <section className={detail.detailSection} aria-label={t('启动配置', 'Startup')}>
+    <fieldset className={detail.detailSection} aria-label={t('启动配置', 'Startup')} disabled={!autoStartEnabled}
+      style={{ border: 0, margin: 0, padding: 0, minWidth: 0,
+        opacity: autoStartEnabled ? undefined : 0.55, filter: autoStartEnabled ? undefined : 'grayscale(1)' }}>
       <div className={detail.sectionHead}><h4 className={detail.sectionTitle}>{t('启动配置', 'Startup')}</h4></div>
-      {applications.length <= 1 && <dl className={detail.facts}>
-        <Fact label={t('默认应用', 'Default application')}>{selectedApp ? appLabel(selectedApp) : t('暂无可用应用', 'No application available')}</Fact>
+      {applications.length === 0 && <dl className={detail.facts}>
+        <Fact label={t('默认应用', 'Default application')}>{t('暂无可用应用', 'No application available')}</Fact>
       </dl>}
-      {applications.length > 1 && applications.map(app => <div key={app.id} className={field.head}>
-        <span className={field.label}>{appLabel(app)}</span>
-        {selectedApp?.id === app.id
-          ? <span className={detail.rowState}><StateDot state="done" />{t('默认', 'Default')}</span>
-          : <Button variant="primary" size="sm" disabled={managing}
-            onClick={() => { void act('application', { ...state.settings, defaultApp: app.id, mode: 'desktop', profile: '' }) }}>
-            {t('设为默认', 'Set as default')}</Button>}
-      </div>)}
+      {applications.length > 0 && <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) max-content max-content',
+        alignItems: 'center', rowGap: 'inherit', columnGap: 16, overflowWrap: 'anywhere' }}>
+        {applications.map(app => <Fragment key={app.id}>
+          {renderApplication(app)}
+          <CopyButton text={`--app ${app.id}`} label={t('复制参数', 'Copy arguments')} copiedLabel={t('已复制', 'Copied')} />
+          {selectedApp?.id === app.id
+            ? <span className={detail.rowState} style={{ justifySelf: 'center' }}><StateDot state="done" />{t('默认', 'Default')}</span>
+            : <Button variant="primary" size="sm" disabled={managing}
+              onClick={() => { void act('application', { ...state.settings, defaultApp: app.id, mode: 'desktop', profile: '' }) }}>
+              {t('设为默认', 'Set as default')}</Button>}
+        </Fragment>)}
+      </div>}
       {applicationError && <p className={detail.reason} role="alert">{applicationError}</p>}
-      {state.settings.enabled && !launchable && <p className={detail.reason}>{t('暂无可用的启动配置，请先手动启动 DSH。', 'No startup configuration is available. Start DSH manually.')}</p>}
+      {autoStartEnabled && !launchable && <p className={detail.reason}>{t('暂无可用的启动配置，请先手动启动 DSH。', 'No startup configuration is available. Start DSH manually.')}</p>}
       {/* Windows starts such an app with its window hidden (autostart.ts); elsewhere it opens a window. */}
-      {state.settings.enabled && selectedApp && !selectedApp.background && state.platform !== 'win32'
-        && <p className={field.hint}>{t('启动时可能打开窗口。', 'Startup may open a window.')}</p>}
-      <DisclosureRow title={t('高级设置', 'Advanced settings')} icon={<IconChevronDownOutlineRegular />} previewChevron={false}
-        open={advancedOpen} expandable expandOnRowClick onToggle={() => { setAdvancedOpen(!advancedOpen) }}>
-        <div className={detail.detailSections}>
-          <SettingsForm
-            state={{ available: true, writable: true, dirty, invalid: managing || !timeoutValid || (draft.enabled && !launchable), saving, failed: saveError !== '' }}
-            labels={{ unavailable: '', readOnly: '', saveFailed: saveError, save: t('保存', 'Save'), saving: t('保存中…', 'Saving…') }}
-            onSave={() => { void act('save') }} onDiscard={() => {}}>
-            <SettingsValueField id="acp-bridge-start-timeout" label={t('启动等待时间（秒）', 'Startup timeout (seconds)')} numeric
-              hint={t('1–600，默认 90', '1–600, 90 by default')}
-              text={Number.isNaN(draft.timeoutSeconds) ? '' : String(draft.timeoutSeconds)} invalid={!timeoutValid}
-              invalidLabel={t('请输入 1–600 之间的整数', 'Enter a whole number from 1 to 600')}
-              overridden={false} overriddenLabel="" resetLabel="" onReset={() => {}} disabled={managing || !state.settings.enabled}
-              onEdit={text => { setDraft({ ...draft, timeoutSeconds: text.trim() === '' ? Number.NaN : Number(text) }) }} />
-          </SettingsForm>
-          {applications.length > 0 && <section className={detail.detailSection}>
-            <div className={detail.sectionHead}><h4 className={detail.sectionTitle}>{t('指定应用连接', 'Connect to a specific application')}</h4></div>
-            <p className={field.hint}>{t('将复制的参数填入客户端的 args。', 'Paste the copied arguments into the client’s args.')}</p>
-            {applications.map(app => <div key={app.id} className={field.head}>
-              <span className={field.label}>{appLabel(app)}</span>
-              <CopyButton text={JSON.stringify(['--app', app.id])} label={t('复制参数', 'Copy arguments')} copiedLabel={t('已复制', 'Copied')} />
-            </div>)}
-          </section>}
-        </div>
-      </DisclosureRow>
-    </section>
+      {selectedApp && !selectedApp.background && state.platform !== 'win32' && (state.platform === 'darwin' || autoStartEnabled)
+        && <p className={field.hint}>{state.platform === 'darwin'
+          ? t(`在 macOS 上，${selectedApp.name} 自动启动时会打开窗口并切换到前台。`,
+            `On macOS, ${selectedApp.name} opens a window and takes focus when it starts automatically.`)
+          : t('启动时可能打开窗口。', 'Startup may open a window.')}</p>}
+      <SettingsForm
+        state={{ available: true, writable: true, dirty, invalid: managing || !timeoutValid || (draft.enabled && !launchable), saving, failed: saveError !== '' }}
+        labels={{ unavailable: '', readOnly: '', saveFailed: saveError, save: t('保存', 'Save'), saving: t('保存中…', 'Saving…') }}
+        onSave={() => { void act('save') }} onDiscard={() => {}}>
+        <SettingsValueField id="acp-bridge-start-timeout" label={t('启动等待时间（秒）', 'Startup timeout (seconds)')} numeric
+          hint={t('1–600，默认 90', '1–600, 90 by default')}
+          text={Number.isNaN(draft.timeoutSeconds) ? '' : String(draft.timeoutSeconds)} invalid={!timeoutValid}
+          invalidLabel={t('请输入 1–600 之间的整数', 'Enter a whole number from 1 to 600')}
+          overridden={false} overriddenLabel="" resetLabel="" onReset={() => {}} disabled={managing}
+          onEdit={text => { setDraft({ ...draft, timeoutSeconds: text.trim() === '' ? Number.NaN : Number(text) }) }} />
+      </SettingsForm>
+    </fieldset>
     <section className={detail.detailSection} aria-label={t('诊断', 'Diagnostics')}>
       <div className={detail.sectionHead}>
         <h4 className={detail.sectionTitle}>{t('连接环境', 'Connection environment')}</h4>
@@ -241,11 +246,11 @@ export function Panel({ language }: { language: string }) {
           onClick={() => { void act('check') }}>{busy.has('check') ? t('检查中…', 'Checking…') : t('重新检查', 'Check again')}</Button>
       </div>
       {Boolean(error) && <p className={detail.reason} role="alert">{managementErrorText(error, language)}</p>}
-      {!state.ready && <p className={detail.reason}>{t('ACP 服务尚未就绪。', 'The ACP service is not ready.')}</p>}
+      {!connections.ready && <p className={detail.reason}>{t('ACP 服务尚未就绪。', 'The ACP service is not ready.')}</p>}
       {failedChecks.map(check => <p key={check.label} className={detail.reason}>{checkLabel(check.label)}{zh ? '：' : ': '}{check.detail}</p>)}
-      {settingsDamaged && <p className={detail.reason}>{t('请在高级设置中重新保存启动配置。', 'Save the startup configuration again in Advanced settings.')}</p>}
+      {settingsDamaged && <p className={detail.reason}>{t('请在启动配置中点击「保存」。', 'Click Save in Startup to save the configuration again.')}</p>}
       {failedChecks.some(check => check.label === 'Launcher') && <div className={detail.detailActions}>
-        <Button variant="primary" size="sm" disabled={managing || !state.ready}
+        <Button variant="primary" size="sm" disabled={managing || !connections.ready}
           onClick={() => { void act('repair') }}>{busy.has('repair') ? t('修复中…', 'Repairing…') : t('修复启动脚本', 'Repair launcher')}</Button>
       </div>}
       <DisclosureRow title={t('诊断详情', 'Diagnostic details')} icon={<IconChevronDownOutlineRegular />} previewChevron={false}

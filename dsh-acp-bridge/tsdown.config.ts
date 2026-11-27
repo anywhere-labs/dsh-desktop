@@ -40,6 +40,7 @@ export default defineConfig([{
 }, {
   name: 'panel', entry: { panel: 'src/panel/index.tsx' }, tsconfig: 'tsconfig.panel.json',
   outDir: 'lib', platform: 'browser', format: 'cjs', target: 'es2022', clean: false, dts: false, sourcemap: true,
+  loader: { '.png': 'dataurl' },
   external: ['react', 'react/jsx-runtime', '@deepseek-ai/cordis', '@deepseek-ai/dsh-client-ui-primitives'],
   // Reuse the official styles instead of writing our own: `acp-styles:<module.css>[?keep=a,b]`
   // compiles a CSS module of an installed official package and, given a list, keeps only the
