@@ -113,9 +113,11 @@ vi.mock('electron', async () => {
   class BrowserWindow extends EventEmitter {
     static getAllWindows() { return fixture.windows.filter(window => !window.destroyed) }
     visible = false
+    rendererCrashed = false
     loadedUrls: string[] = []
     webContents = Object.assign(new EventEmitter(), { id: fixture.windows.length + 1,
       mainFrame: { url: '' }, getURL: () => this.webContents.mainFrame.url, setWindowOpenHandler() {}, send: vi.fn(), isDestroyed: () => false,
+      isCrashed: () => this.rendererCrashed,
       setIgnoreMenuShortcuts() {}, isFocused: () => true, executeJavaScript: vi.fn(async () => true) })
     size: { width: number, height: number }
     minSize: { width: number, height: number }
@@ -1483,6 +1485,38 @@ it('boots recovery in the preferred OS language even when the app locale is Engl
     controls.visible = true
     await fixture.handlers.get('dsh-next:command')!(sender, { type: 'quit' })
     await vi.waitFor(() => expect(fixture.close).toHaveBeenCalledOnce())
+  } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
+})
+
+it('recreates a crashed recovery window from the tray without sending material IPC to the shell', async () => {
+  const home = mkdtempSync(join(tmpdir(), 'next-recovery-tray-'))
+  vi.stubEnv('DSH_DESKTOP_NEXT_HOME', home)
+  const argv = [...process.argv]
+  process.argv.push('--next-recovery')
+  try {
+    const { nativeTheme } = await import('electron')
+    await import('../src/main.ts')
+    await vi.waitFor(() => expect(fixture.windows).toHaveLength(1))
+    const original = fixture.windows[0]
+    nativeTheme.emit('updated')
+    original.rendererCrashed = true
+    original.webContents.emit('render-process-gone', {}, { reason: 'crashed', exitCode: -2147483645 })
+    expect(fixture.diagnosticAppend).toHaveBeenCalledWith(expect.objectContaining({
+      source: 'renderer', event: 'process-gone',
+      fields: { window: 'shell', reason: 'crashed', exitCode: -2147483645 },
+    }))
+
+    fixture.trays[0].emit('click')
+    expect(original.destroyed).toBe(true)
+    expect(original.webContents.send).not.toHaveBeenCalled()
+    expect(fixture.windows).toHaveLength(2)
+    const replacement = fixture.windows[1]
+    expect(replacement.loadedUrls).toEqual(original.loadedUrls)
+    expect(replacement.options.webPreferences.sandbox).toBe(true)
+    replacement.emit('ready-to-show')
+    expect(replacement.visible).toBe(true)
+    expect(replacement.webContents.send).not.toHaveBeenCalled()
+    expect(fixture.start).not.toHaveBeenCalled()
   } finally { process.argv.splice(0, process.argv.length, ...argv); vi.unstubAllEnvs(); rmSync(home, { recursive: true, force: true }) }
 })
 
