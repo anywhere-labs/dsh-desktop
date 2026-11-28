@@ -9,14 +9,12 @@ import { roleApplicationMenuTemplate } from './menu-locale.ts'
 import { notificationCopy, notificationEnabled } from './notifications.ts'
 import type { DesktopCommand, DesktopPreferences, DesktopState, DesktopNotification } from './desktop-contract.ts'
 import { windowMaterial } from './window-material.ts'
-import { IPC } from './ipc.ts'
 import { updateLabel } from './update-state.ts'
 
 export function applyWindowMaterial(window: BrowserWindow, preferences: DesktopPreferences): void {
   const material = windowMaterial(preferences)
   if (process.platform === 'darwin') window.setVibrancy(material === 'transparent' ? 'sidebar' : null)
   window.setBackgroundColor(material === 'off' ? nativeTheme.shouldUseDarkColors ? '#1b1b1c' : '#f9fafb' : '#00000000')
-  window.webContents.send(IPC.material, material)
 }
 
 /** icons:export writes the classic set into its own directory below `build` and `assets`. */

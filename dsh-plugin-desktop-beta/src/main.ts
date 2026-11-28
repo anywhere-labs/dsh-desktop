@@ -24,7 +24,7 @@ import { readSystemProxyConfiguration } from './system-proxy-configuration.ts'
 import { resolveDesktopShellEnvironment, type DesktopShellEnvironmentResolution } from './shell-environment.ts'
 import { ensureUtf8Locale } from './shell-locale.ts'
 import type { DesktopAppIcon } from './app-icon.ts'
-import { DEFAULT_PROFILE, NATIVE_ACCESS_HEADER, type DesktopCommand, type DesktopState, type DesktopSettingsPage } from './desktop-contract.ts'
+import { DEFAULT_PROFILE, NATIVE_ACCESS_HEADER, type DesktopCommand, type DesktopPreferences, type DesktopState, type DesktopSettingsPage } from './desktop-contract.ts'
 import { portsChanged, parsePreferences } from './desktop-preferences.ts'
 import { hostStartupLimitTitle, hostStartupTimeoutFromId, hostStartupTimeoutLabel } from './host-startup-limit.ts'
 import { NativeDesktop, appWindowIcon, applyWindowMaterial } from './native-desktop.ts'
@@ -453,6 +453,17 @@ function show(window: BrowserWindow): void {
   if (window.isMinimized()) window.restore()
   window.show(); window.focus()
 }
+
+function updateWindowMaterials(preferences: DesktopPreferences): void {
+  for (const window of [mainWindow, shellWindow]) {
+    if (window && !window.isDestroyed()) applyWindowMaterial(window, preferences)
+  }
+  // Only the application preload listens for material changes. It reads the current value on load.
+  const contents = mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents : undefined
+  if (contents && !contents.isDestroyed() && !contents.isCrashed() && contents.getURL().startsWith(APP_URL)) {
+    contents.send(IPC.material, windowMaterial(preferences))
+  }
+}
 /**
  * Windows caption buttons never paint a fill of their own. Upstream fills them with the sidebar
  * color, which matches only the official caption band: full-window surfaces such as the official
@@ -652,18 +663,29 @@ function openControls(page: 'general' | 'profiles' | 'create-profile' | 'tools' 
     window.setMinimumSize(creating ? 420 : 680, creating ? 330 : 560)
     window.setSize(creating ? 480 : page === 'onboarding' ? 1040 : 850, creating ? 360 : page === 'onboarding' ? 720 : 800)
     if (process.platform === 'darwin') window.setWindowButtonPosition?.({ x: 16, y: page === 'onboarding' ? 18 : 12 })
-    applyWindowMaterial(window, runtime.preferences)
   }
-  if (shellWindow && !shellWindow.isDestroyed()) {
-    if (page === 'onboarding' && shellWindow.webContents.getURL() === url) { show(shellWindow); return }
-    resize(shellWindow)
-    void shellWindow.loadURL(url).catch(error => runtime.diagnostics.append(String(error), 'error'))
-    show(shellWindow); return
+  let existing = shellWindow && !shellWindow.isDestroyed() ? shellWindow : undefined
+  if (existing?.webContents.isCrashed()) {
+    replacingWindow = true
+    try { existing.destroy() } finally { replacingWindow = false }
+    existing = undefined
   }
-  shellWindow = createWindow('preload-shell.cjs')
-  resize(shellWindow)
-  shellWindow.on('closed', () => { shellWindow = undefined })
-  void shellWindow.loadURL(url).catch(error => runtime.diagnostics.append(String(error), 'error'))
+  if (existing && page === 'onboarding' && existing.webContents.getURL() === url) { show(existing); return }
+  const owner = existing ?? createWindow('preload-shell.cjs')
+  if (!existing) {
+    shellWindow = owner
+    owner.once('closed', () => { if (shellWindow === owner) shellWindow = undefined })
+    owner.webContents.on('render-process-gone', (_event, details) => {
+      if (quitting || shellWindow !== owner || owner.isDestroyed() || details.reason === 'clean-exit') return
+      runtime.diagnostics.record({ source: 'renderer', event: 'process-gone', level: 'error',
+        fields: { window: 'shell', reason: details.reason, exitCode: details.exitCode } })
+    })
+  }
+  resize(owner)
+  void owner.loadURL(url).catch(error => {
+    if (!quitting && shellWindow === owner && !owner.isDestroyed()) runtime.diagnostics.append(String(error), 'error')
+  })
+  if (existing) show(owner)
 }
 function openMain(): void {
   if (quitting || confirmingDataDirectory || displayless) return
@@ -1047,9 +1069,7 @@ async function performCommand(input: Record<string, unknown>, type: string, sour
           && !await confirmLanAccess()) return
         await runtime.applyPreferences(preferences)
       }
-      for (const window of [mainWindow, shellWindow]) {
-        if (window && !window.isDestroyed()) applyWindowMaterial(window, preferences)
-      }
+      updateWindowMaterials(preferences)
       return
     }
     if (!['switch', 'features', 'restart', 'recover', 'safe-mode', 'normal-mode', 'rollback', 'repair-global'].includes(String(type))) throw new Error('Invalid Next command')
@@ -1654,9 +1674,7 @@ async function main(): Promise<void> {
     return { languages: [...app.getPreferredSystemLanguages(), app.getLocale()], preference: null }
   })
   nativeTheme.on('updated', () => {
-    for (const window of [mainWindow, shellWindow]) {
-      if (window && !window.isDestroyed()) applyWindowMaterial(window, runtime.preferences)
-    }
+    updateWindowMaterials(runtime.preferences)
     native.appearanceChanged()
   })
   runtime.safeMode = safeModeRequested
