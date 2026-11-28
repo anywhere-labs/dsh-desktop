@@ -8,7 +8,7 @@ Thank you for wanting to contribute to DSH Desktop. This is a community project 
 - Feature ideas and improvement suggestions are welcome as issues too.
 - Join the [community channels](README.en.md#community) (WeChat group, QQ group, Discord) and help other users.
 - Write tutorials or experience posts, or help improve and translate the documentation.
-- Suggest ecosystem projects for the [related links](README.en.md#friendly-links) section.
+- Suggest ecosystem projects for the [related links](README.en.md#related-links) section.
 
 ## Plugin authors: extend the ecosystem
 
@@ -39,6 +39,10 @@ corepack yarn dev     # launch the application when a graphical session is avail
 - Builds, typechecks, unit tests, and smoke checks must stay headless-safe.
 
 ### Commits and pull requests
+
+PRs unrelated to essential Desktop features, as well as PRs related to listing other plugins, may not be accepted.
+
+We currently accept PRs related to essential Desktop features (such as problem fixes and new features); developers are very welcome to submit such PRs.
 
 - Use conventional commit messages (for example `fix(desktop): ...`, `docs: ...`).
 - Run `yarn check` and keep it green before committing.

@@ -259,6 +259,8 @@ This project is licensed under the [MIT License](LICENSE).
 
 > “DeepSeek Harness” is a registered trademark of DeepSeek AI. The name is used here solely to accurately describe compatibility, technical origin, and this project's relationship to upstream software.
 
+> This project is fully open source and free of charge. If anyone tries to sell you this software in any form, refuse the transaction.
+
 > DSH Desktop is an independent community project and is not affiliated with, sponsored by, authorized by, or endorsed by DeepSeek.
 
 ## Star History
