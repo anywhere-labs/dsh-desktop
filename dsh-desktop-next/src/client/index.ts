@@ -16,6 +16,8 @@ import { registerDesktopOnboarding } from './onboarding.tsx'
 import './onboarding.css'
 import { registerPluginControls } from './plugin-controls.tsx'
 import { installPluginControlsStyles } from './plugin-controls-styles.ts'
+import { registerSessionTabs } from './session-tabs-register.ts'
+import { installSessionTabsStyles } from './session-tabs-styles.ts'
 import { registerComputerUseCommandUi } from './computer-use-command-ui.tsx'
 import { installOfficialComputerUseStyles, registerDesktopSettingsIcon } from './upstream-family.ts'
 import { desktopDirectoryPicker, registerDesktopDirectoryPicker, shadowsHostDirectoryFlow } from './directory-picker.ts'
@@ -44,8 +46,10 @@ export function apply(ctx: Context): void {
   }), 'Next settings and recovery labels')
   ctx.effect(() => installDesktopSettingsStyles('dsh-desktop-next'), 'Shared Desktop settings styles')
   ctx.effect(installPluginControlsStyles, 'Plugin controls and permission dialog styles')
+  ctx.effect(installSessionTabsStyles, 'Session tab strip styles')
   if (installOfficialComputerUseStyles) ctx.effect(installOfficialComputerUseStyles, 'Official Computer Use row styles')
   registerPluginControls(ctx)
+  registerSessionTabs(ctx)
   registerComputerUseCommandUi(ctx)
   // On macOS and Windows the Desktop window adds workspaces through the system folder dialog
   // like upstream Desktop, whatever directory flow the Host mounted. Linux keeps the Host's
