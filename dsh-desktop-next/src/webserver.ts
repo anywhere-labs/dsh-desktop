@@ -1,6 +1,7 @@
 /** Keep upstream HTTP routing while requiring Host credentials for Market routes. */
 import { hostLog, hostOperation } from './host/logging.ts'
-import WebServer, { type WebRoute, type WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
+import WebServer, { type Config, type WebRoute, type WebUpgradeRoute } from '@deepseek-ai/dsh-host-webserver'
+import { Service } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-client-connection'
 import { expireSurplusSessions, surplusSessionExpiries } from './browser-sessions.ts'
 import { decideDesktopBrowserAccess, nextBrowserAccess } from './desktop-browser-access.ts'
@@ -10,9 +11,75 @@ import type { Duplex } from 'node:stream'
 const MARKET_ROUTE = '/api/community-market'
 const isMarketRoute = (path: string): boolean => path === MARKET_ROUTE || path.startsWith(`${MARKET_ROUTE}/`)
 
+/** Maximum number of sequential ports tried after a bind collision or a Windows-reserved port. */
+const DESKTOP_WEB_PORT_RETRY_LIMIT = 32
+
+/**
+ * Bind failures that mean "this port is unavailable", not "binding is broken".
+ * Windows reports ports inside Hyper-V/WinNAT excluded ranges as `EACCES` even
+ * though no process owns them (`netsh interface ipv4 show excludedportrange`).
+ */
+function isPortUnavailable(cause: unknown): boolean {
+  const code = (cause as NodeJS.ErrnoException | null)?.code
+  return code === 'EADDRINUSE' || code === 'EACCES'
+}
+
+/** Close an unbound server left behind by a failed listen attempt. */
+function closeFailedServer(instance: unknown): void {
+  const server = (instance as { server?: { close?: (callback?: (error?: Error) => void) => void } } | null)?.server
+  if (typeof server?.close !== 'function') return
+  try {
+    server.close(() => {})
+  } catch {
+    // The failed server is already unbound; preserve the original bind error.
+  }
+}
+
 export default class NextWebServer extends WebServer {
   static override Config = WebServer.Config
   private readonly browserSockets = new Set<Duplex>()
+  /** The same config object the upstream base class stores as its private `config`. */
+  private readonly serverConfig: Config
+
+  constructor(ctx: ConstructorParameters<typeof WebServer>[0], config: Config) {
+    super(ctx, config)
+    this.serverConfig = config
+  }
+
+  /**
+   * Bounded bind retry, ported from Stable's `DesktopWebServer` (#1774): the upstream
+   * server fails its fiber on the first `EADDRINUSE`, and Windows reports ports inside
+   * Hyper-V/WinNAT excluded ranges as `EACCES`, so a fixed port would otherwise send
+   * every start into recovery mode. The upstream `origin` reads the bound
+   * `listenedPort`, so retried and OS-assigned ports reach the Desktop through
+   * `ready.url` unchanged.
+   */
+  override async [Service.init](): Promise<void> {
+    const requestedPort = this.serverConfig.port
+    if (requestedPort === 0) {
+      await super[Service.init]()
+      return
+    }
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        await super[Service.init]()
+        return
+      } catch (cause) {
+        if (!isPortUnavailable(cause)) throw cause
+        closeFailedServer(this)
+        const nextPort = requestedPort + attempt + 1
+        if (attempt >= DESKTOP_WEB_PORT_RETRY_LIMIT || nextPort > 65_535) {
+          // A Windows excluded range is usually wider than the sequential
+          // window, so finish with one OS-assigned port instead of failing
+          // startup; the Desktop reads the bound port from `ready.url` either way.
+          this.serverConfig.port = 0
+          await super[Service.init]()
+          return
+        }
+        this.serverConfig.port = nextPort
+      }
+    }
+  }
 
   /** Revoke existing browser streams as well as new requests; native streams stay alive. */
   setBrowserAccess(enabled: boolean): void {
